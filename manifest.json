@@ -1,10 +1,10 @@
 {
-  "name": "TeachMate",
+  "name": "TEACHMATE PRO",
   "short_name": "TeachMate",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#ffffff",
-  "theme_color": "#1e40af",
+  "theme_color": "#f5f6fa",
   "orientation": "portrait",
   "icons": [
     {
@@ -17,5 +17,7 @@
       "sizes": "512x512",
       "type": "image/png"
     }
-  ]
+  ],
+  "id": "teachmate-app",
+  "description": "TeachMate is a smart school management app that helps teachers and headteachers manage classes, attendance, student performance, communication, and reports in real time."
 }
