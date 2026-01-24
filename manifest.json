@@ -84,5 +84,18 @@
         }
       ]
     }
-  ]
+  ],
+  "file_handlers": [],
+  "launch_handler": {
+    "client_mode": "navigate-existing"
+  },
+  "protocol_handlers": [],
+  "prefer_related_applications": false,
+  "related_applications": [],
+  "share_target": {},
+  "iarc_rating_id": "",
+  "widgets": [],
+  "edge_side_panel": {},
+  "note_taking": {},
+  "scope_extensions": {}
 }
