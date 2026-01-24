@@ -128,19 +128,28 @@
     }
   },
   "iarc_rating_id": "e84cda94-24dd-4a9a-908d-58302064f4b7",
-  "widgets": [
-    {
-      "name": "TeachMate Attendance Widget",
-      "short_name": "Attendance",
-      "description": "View daily attendance summary",
-      "icons": [
-        {
-          "src": "icons/icon-192.png",
-          "sizes": "192x192",
-          "type": "image/png"
-        }
-      ]
-    }
+"widgets": [
+  {
+    "name": "TeachMate Attendance Widget",
+    "short_name": "Attendance",
+    "description": "View daily attendance summary",
+    "tag": "attendance",
+    "ms_ac_template": "widgets/attendance.json",
+    "screenshots": [
+      {
+        "src": "screenshots/widget-screenshot.png",
+        "sizes": "400x300",
+        "type": "image/png"
+      }
+    ],
+    "icons": [
+      {
+        "src": "icons/icon-192.png",
+        "sizes": "192x192",
+        "type": "image/png"
+      }
+    ]
+  }
   ],
   "edge_side_panel": {
     "preferred_width": 400
@@ -148,9 +157,10 @@
   "note_taking": {
     "new_note_url": "/teachmate/new-note"
   },
-  "scope_extensions": [
-    "/teachmate/reports/",
-    "/teachmate/dashboard/"
-  ]
+ "scope_extensions": [
+  {
+    "scopes": ["/teachmate/reports/", "/teachmate/dashboard/"]
+  }
+],
 }
       
