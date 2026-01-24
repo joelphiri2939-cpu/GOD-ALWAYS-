@@ -90,7 +90,7 @@
       "action": "/teachmate/handle-file",
       "accept": [
         {
-          "media_type": "application/pdf"
+          "type": "application/pdf"
         }
       ]
     }
