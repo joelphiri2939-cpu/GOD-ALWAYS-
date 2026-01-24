@@ -1,62 +1,88 @@
 {
   "name": "TEACHMATE PRO",
   "short_name": "TeachMate",
+  "id": "teachmate-app",
+  "description": "TeachMate is a smart school management app that helps teachers and headteachers manage classes, attendance, student performance, communication, and reports in real time.",
   "start_url": "./index.html",
   "scope": "/teachmate/",
   "display": "standalone",
-  "display_override": ["standalone", "fullscreen"],
-  "background_color": "#ffffff",
-  "theme_color": "#f5f6fa",
+  "display_override": ["window-controls-overlay", "fullscreen", "minimal-ui"],
   "orientation": "portrait",
-  "description": "TeachMate is a smart school management app that helps teachers and headteachers manage classes, attendance, student performance, communication, and reports in real time.",
+  "theme_color": "#f5f6fa",
+  "background_color": "#ffffff",
+  "lang": "en",
+  "dir": "ltr",
   "icons": [
-    {
-      "src": "icons/icon-72.png",
-      "sizes": "72x72",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "icons/icon-96.png",
-      "sizes": "96x96",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "icons/icon-128.png",
-      "sizes": "128x128",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "icons/icon-144.png",
-      "sizes": "144x144",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "icons/icon-152.png",
-      "sizes": "152x152",
-      "type": "image/png",
-      "purpose": "any"
-    },
     {
       "src": "icons/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "icons/icon-384.png",
-      "sizes": "384x384",
-      "type": "image/png",
-      "purpose": "any"
+      "purpose": "any maskable"
     },
     {
       "src": "icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any"
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "screenshots/dashboard.png",
+      "sizes": "1080x1920",
+      "type": "image/png"
+    },
+    {
+      "src": "screenshots/class-selection.png",
+      "sizes": "1080x1920",
+      "type": "image/png"
+    },
+    {
+      "src": "screenshots/data-view.png",
+      "sizes": "1080x1920",
+      "type": "image/png"
+    }
+  ],
+  "categories": ["education"],
+  "shortcuts": [
+    {
+      "name": "View Classes",
+      "short_name": "Classes",
+      "description": "Quick access to class management",
+      "url": "/teachmate/classes",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Add Student",
+      "short_name": "Add Student",
+      "description": "Quickly add a new student",
+      "url": "/teachmate/students",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "View Dashboard",
+      "short_name": "Dashboard",
+      "description": "Quick access to headteacher dashboard",
+      "url": "/teachmate/index.html",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
     }
   ]
 }
