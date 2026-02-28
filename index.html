@@ -2,7 +2,6 @@
 
 
 
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -108,7 +107,7 @@
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
     }
-    
+
 /* TeachMate Results Module — ECZ-Hybrid + Tabs CSS patch */
 #results-tabs { border-radius:8px; box-shadow:0 1px 6px rgba(0,0,0,.06); background:#fff; padding:8px; }
 .results-tabs-header { display:flex; gap:8px; margin-bottom:10px; }
@@ -131,7 +130,7 @@
 .small { font-size:12px; color:#444; }
 @media (max-width:800px) { .results-tabs-header { flex-wrap:wrap } .tab-btn { flex:1 1 auto } }
 
-    
+
 
     .card h3 {
       font-size: 1.2rem;
@@ -393,8 +392,8 @@
       position: relative;
       text-align: center;
     }
-    
-       
+
+
         body { font-family: Arial, sans-serif; padding: 20px; color: #333; background: #f9f9f9; max-width: 800px; margin: 0 auto; }
         h1,h2,h3 { color: #2c3e50; text-align: center; }
         table { border-collapse: collapse; width: 100%; margin: 20px 0; }
@@ -409,9 +408,9 @@
           .no-print { display: none; }
           body { padding: 0; }
         }
-        
-        
-        
+
+
+
         .modal {
   display: none;
   position: fixed;
@@ -436,7 +435,7 @@
   max-height: 95vh;
   border-radius: 10px;
 }
-        
+
 th {
   font-weight: 700;
   color: #000;
@@ -478,13 +477,13 @@ td {
       border-radius: 8px;
       border: 2px solid var(--accent);
     }
-    
-    
 
-    
-    
-    
-    
+
+
+
+
+
+
 
     #splash-screen {
       position: fixed;
@@ -557,7 +556,7 @@ td {
       background: #d4edda;
       color: #155724;
     }
-    
+
 
 
     .absent-btn {
@@ -726,7 +725,7 @@ td {
     font-size: 1rem;
     color: var(--text-light);
   }
-  
+
   /* Results UI visibility helpers */
 .btn {
   padding: 8px 10px;
@@ -972,7 +971,7 @@ th, td { padding: 10px; text-align: left; }
    border-radius: 50%;
    cursor: pointer;
  }
- 
+
  @media (max-width: 600px) {
    #attendance-table .student-photo {
      width: 32px;
@@ -1076,7 +1075,7 @@ th, td { padding: 10px; text-align: left; }
 
 
 
-  
+
   </style>
 </head>
 <body>
@@ -1140,7 +1139,7 @@ th, td { padding: 10px; text-align: left; }
 
 <div id="class-management" class="card">
   <h2>Class Management</h2>
-  
+
   <!-- Create Class -->
   <div class="input-wrapper">
     <input type="text" id="new-class" placeholder="Class Name">
@@ -1148,7 +1147,7 @@ th, td { padding: 10px; text-align: left; }
   </div>
   <button onclick="createClass()">Create Class</button>
   <p><em>Note: Max 4 classes per teacher to keep workload manageable.</em></p>
-  
+
   <!-- Select Class -->
   <div class="input-wrapper">
     <select id="select-class" onchange="loadStudents()">
@@ -1157,7 +1156,7 @@ th, td { padding: 10px; text-align: left; }
     <label>Select Class</label>
   </div>
   <button class="delete-class-btn" id="delete-class-btn" onclick="deleteClass()" style="width: auto; margin: 0.5rem 0;">Delete Selected Class</button>
-  
+
   <!-- Add Student -->
   <h3>Add Student</h3>
   <div class="input-wrapper">
@@ -1184,7 +1183,7 @@ th, td { padding: 10px; text-align: left; }
   <button id="clearBtn" onclick="clearStudentInputs()">Clear</button>
   <p id="add-msg"></p>
   <p>Parent phone numbers allow teachers to contact parents for updates or issues. Addresses help track where students are coming from. Photos aid in student identification.</p>
-  
+
   <!-- Students List Table -->
   <h3>Students List</h3>
   <table id="students-table">
@@ -1210,25 +1209,25 @@ th, td { padding: 10px; text-align: left; }
     const tbody = document.getElementById('students-table-body');
     if (!tbody) return;
     tbody.innerHTML = '';
-    
+
     const select = document.getElementById('select-class');
     const classId = select ? select.value : '';
     if (!classId) {
       tbody.innerHTML = '<tr><td colspan="6" class="center small">Select a class to view students</td></tr>';
       return;
     }
-    
+
     let students = await getIndexedDB('students');
     if (!Array.isArray(students)) students = [];
     students = students.filter(s => s.classId === classId);
-    
+
     if (students.length === 0) {
       tbody.innerHTML = '<tr><td colspan="6" class="center small">No students found in this class</td></tr>';
       return;
     }
-    
+
     students.sort((a, b) => a.name.localeCompare(b.name));
-    
+
     students.forEach(student => {
       const tr = document.createElement('tr');
       tr.style.cursor = 'pointer';
@@ -1257,7 +1256,7 @@ th, td { padding: 10px; text-align: left; }
 
 
 
- 
+
   <div id="photo-modal" class="modal" role="dialog" aria-labelledby="modal-title" aria-hidden="true">
     <div class="modal-content">
       <span class="modal-close" onclick="closePhotoModal()" role="button" aria-label="Close photo modal">&times;</span>
@@ -1369,7 +1368,7 @@ th, td { padding: 10px; text-align: left; }
       <option value="" disabled selected>-- Select Class --</option>
     </select>
   </div>
-  
+
   <!-- Term entry -->
   <div class="input-wrapper">
     <input type="text" id="attendance-term" required>
@@ -1636,7 +1635,7 @@ async function retryFirebaseCall(fn, options = {}) {
   const { retries = 3, delay = 500, factor = 2, onRetry = null } = options;
   let attempt = 0;
   let currentDelay = delay;
-  
+
   while (attempt <= retries) {
     try {
       return await fn();
@@ -1699,86 +1698,86 @@ const ALL_COLLECTIONS = [
 
 
 
-    // ──────────────────────────────────────────────────────────────
-    //  INDEXEDDB HELPERS – NOW WITH PROPER ERROR MESSAGES
-    // ──────────────────────────────────────────────────────────────
-    function getIndexedDB(storeName, key) {
-      return new Promise((resolve, reject) => {
-        if (!db) return reject(new Error('IndexedDB not initialized yet'));
-        
-        let transaction;
-        try {
-          transaction = db.transaction([storeName], 'readonly');
-        } catch (e) {
-          console.error(`Failed to create transaction for GET [${storeName}]`, e.name, e.message, e.code);
-          return reject(e);
-        }
-        const store = transaction.objectStore(storeName);
-        const request = key !== undefined ? store.get(key) : store.getAll();
-        
-        request.onsuccess = () => resolve(request.result ?? (key !== undefined ? null : []));
-        request.onerror = () => {
-          console.error(`IndexedDB GET error [${storeName}]`, request.error ? request.error.name : 'Unknown', request.error ? request.error.message : 'No message', request.error ? request.error.code : 'No code');
-          reject(request.error);
-        };
-      });
-    }
+
+
+
+// ──────────────────────────────────────────────────────────────
+//  INDEXEDDB HELPERS – NOW WITH PROPER ERROR MESSAGES
+// ──────────────────────────────────────────────────────────────
+function getIndexedDB(storeName, key) {
+  return new Promise((resolve, reject) => {
+    if (!db) return reject(new Error('IndexedDB not initialized yet'));
     
-    async function setIndexedDB(storeName, key, value) {
-      if (!db) throw new Error('IndexedDB not initialized');
-      
-      const transaction = db.transaction([storeName], 'readwrite');
-      const store = transaction.objectStore(storeName);
-      
-      // Only add the key if the store expects 'id' as keyPath
-      let data;
-      if (store.keyPath) {
-        data = { ...value };
-        if (!(store.keyPath in data)) {
-          if (key !== undefined) data[store.keyPath] = key;
-          else data[store.keyPath] = String(Date.now());
-        }
-      } else {
-        data = { ...value };
-      }
-      
-      return new Promise((resolve, reject) => {
-        const req = store.put(data);
-        req.onsuccess = () => resolve();
-        req.onerror = () => reject(req.error);
-      });
+    let transaction;
+    try {
+      transaction = db.transaction([storeName], 'readonly');
+    } catch (e) {
+      console.error(`Failed to create transaction for GET [${storeName}]`, e.name, e.message, e.code);
+      return reject(e);
     }
+    const store = transaction.objectStore(storeName);
+    const request = key !== undefined ? store.get(key) : store.getAll();
     
-    function deleteIndexedDB(storeName, key) {
-      if (!db) throw new Error('IndexedDB not initialized');
-      
-      let transaction;
-      try {
-        transaction = db.transaction([storeName], 'readwrite');
-      } catch (e) {
-        console.error(`Failed to create transaction for DELETE [${storeName}]`, e.name, e.message, e.code);
-        throw e;
-      }
-      const store = transaction.objectStore(storeName);
-      return new Promise((resolve, reject) => {
-        const req = store.delete(key);
-        req.onsuccess = () => resolve();
-        req.onerror = () => {
-          console.error(`IndexedDB DELETE error [${storeName}]`, req.error ? req.error.name : 'Unknown', req.error ? req.error.message : 'No message', req.error ? req.error.code : 'No code');
-          reject(req.error);
-        };
-      });
+    request.onsuccess = () => resolve(request.result ?? (key !== undefined ? null : []));
+    request.onerror = () => {
+      console.error(`IndexedDB GET error [${storeName}]`, request.error ? request.error.name : 'Unknown', request.error ? request.error.message : 'No message', request.error ? request.error.code : 'No code');
+      reject(request.error);
+    };
+  });
+}
+
+async function setIndexedDB(storeName, key, value) {
+  if (!db) throw new Error('IndexedDB not initialized');
+  
+  const transaction = db.transaction([storeName], 'readwrite');
+  const store = transaction.objectStore(storeName);
+  
+  // Only add the key if the store expects 'id' as keyPath
+  let data;
+  if (store.keyPath) {
+    data = { ...value };
+    if (!(store.keyPath in data)) {
+      if (key !== undefined) data[store.keyPath] = key;
+      else data[store.keyPath] = String(Date.now());
     }
+  } else {
+    data = { ...value };
+  }
+  
+  return new Promise((resolve, reject) => {
+    const req = store.put(data);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
 
-
-
+function deleteIndexedDB(storeName, key) {
+  if (!db) throw new Error('IndexedDB not initialized');
+  
+  let transaction;
+  try {
+    transaction = db.transaction([storeName], 'readwrite');
+  } catch (e) {
+    console.error(`Failed to create transaction for DELETE [${storeName}]`, e.name, e.message, e.code);
+    throw e;
+  }
+  const store = transaction.objectStore(storeName);
+  return new Promise((resolve, reject) => {
+    const req = store.delete(key);
+    req.onsuccess = () => resolve();
+    req.onerror = () => {
+      console.error(`IndexedDB DELETE error [${storeName}]`, req.error ? req.error.name : 'Unknown', req.error ? req.error.message : 'No message', req.error ? req.error.code : 'No code');
+      reject(req.error);
+    };
+  });
+}
 
 // ──────────────────────────────────────────────────────────────
 //  INITIALIZE INDEXEDDB – FIXED + CLEAN + WITH ALL STORES
 // ──────────────────────────────────────────────────────────────
 async function initIndexedDB() {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open('TeachMateDB', 103); // Bumped version to 103
+    const request = indexedDB.open('TeachMateDB', 105); // Bumped version to 105 to ensure upgrade
     
     request.onupgradeneeded = (event) => {
       db = event.target.result;
@@ -1805,6 +1804,11 @@ async function initIndexedDB() {
         db.createObjectStore("attendanceSummary", { keyPath: "studentId" });
       }
       
+      // Create NEW feesHistory store (assuming similar structure to attendanceHistory)
+      if (!db.objectStoreNames.contains("feesHistory")) {
+        db.createObjectStore("feesHistory", { keyPath: 'recordId' });
+      }
+      
       console.log('Database upgraded/created with all stores.');
     };
     
@@ -1816,7 +1820,7 @@ async function initIndexedDB() {
       const requiredStores = [
         'classes', 'students', 'attendance', 'results', 'fees',
         'feesConfig', 'messages', 'teachers', 'userProfile', 'syncQueue',
-        'attendanceHistory', 'attendanceSummary' // ← FIXED!
+        'attendanceHistory', 'attendanceSummary', 'feesHistory' // ← ADDED!
       ];
       
       const missing = requiredStores.filter(name =>
@@ -1867,8 +1871,6 @@ async function initIndexedDB() {
 }
 
 
-
-
 // ──────────────────────────────────────────────────────────────
 // CLEAN EXISTING SYNC QUEUE
 // Remove entries with empty payloads or empty objects/fields
@@ -1876,12 +1878,12 @@ async function initIndexedDB() {
 async function cleanSyncQueue() {
   let queue = await getIndexedDB('syncQueue').catch(() => []);
   if (!Array.isArray(queue)) queue = [];
-  
+
   for (let entry of queue) {
     if (!entry || !entry.data) continue;
-    
+
     const payload = sanitizeForFirestore(entry.data);
-    
+
     if (!payload || Object.keys(payload).length === 0) {
       console.warn('Deleting empty or invalid syncQueue entry:', entry.id);
       await deleteIndexedDB('syncQueue', entry.id).catch(err =>
@@ -1889,7 +1891,7 @@ async function cleanSyncQueue() {
       );
     }
   }
-  
+
   console.log('SyncQueue cleaned. Ready for safe syncing.');
 }
 
@@ -1900,7 +1902,7 @@ cleanSyncQueue();
 
 
 
-      
+
     //  SYNC QUEUE
     // ──────────────────────────────────────────────────────────────
     async function addToSyncQueue(path, action, data) {
@@ -1940,98 +1942,157 @@ cleanSyncQueue();
 
 
 
-    // ──────────────────────────────────────────────────────────────
-    //  SYNC LOGIC (with safe photo upload and retry limit)
-    // ──────────────────────────────────────────────────────────────
-    async function syncData() {
-      if (!navigator.onLine) return;
-      updateSyncStatus('Syncing…', '#f9d423');
-
-      const user = auth.currentUser;
-      if (!user) return updateSyncStatus('Not signed in', '#ffd166');
-
-      const profile = await getIndexedDB('userProfile', user.uid).catch(() => null);
-      if (!profile?.schoolId) return updateSyncStatus('No school ID', '#ffd166');
-
-      const schoolId = sanitizeKey(String(profile.schoolId));
-      let queue = await getIndexedDB('syncQueue').catch(() => []);
-      if (!Array.isArray(queue)) queue = [];
-
-      queue.sort((a, b) => a.timestamp - b.timestamp);
-
-      for (let entry of queue) {
-        if (!entry || !entry.path || !entry.action || !entry.id) {
-          console.warn('Skipping malformed syncQueue entry', entry);
-          await deleteIndexedDB('syncQueue', entry.id).catch(e => console.error('Delete failed', e.name, e.message));
-          continue;
+// ──────────────────────────────────────────────────────────────
+//  SYNC LOGIC (Enhanced Multi-School + Teacher Isolation)
+// ──────────────────────────────────────────────────────────────
+async function syncData() {
+  if (!navigator.onLine) return;
+  updateSyncStatus('Syncing…', '#f9d423');
+  
+  const user = auth.currentUser;
+  if (!user) return updateSyncStatus('Not signed in', '#ffd166');
+  
+  const profile = await getIndexedDB('userProfile', user.uid).catch(() => null);
+  if (!profile?.schoolId) return updateSyncStatus('No school ID', '#ffd166');
+  
+  const schoolId = sanitizeKey(String(profile.schoolId));
+  const teacherId = user.uid;
+  
+  if (!schoolId || !teacherId) {
+    return updateSyncStatus('Invalid tenant context', '#ff4e50');
+  }
+  
+  let queue = await getIndexedDB('syncQueue').catch(() => []);
+  if (!Array.isArray(queue)) queue = [];
+  
+  queue.sort((a, b) => a.timestamp - b.timestamp);
+  
+  for (let entry of queue) {
+    
+    if (!entry || !entry.path || !entry.action || !entry.id) {
+      console.warn('Skipping malformed syncQueue entry', entry);
+      await deleteIndexedDB('syncQueue', entry?.id).catch(() => {});
+      continue;
+    }
+    
+    // 🔒 Ownership check
+    if (entry.teacherId && entry.teacherId !== teacherId) {
+      console.warn('Skipping entry from different teacher:', entry.id);
+      continue;
+    }
+    
+    const rawParts = entry.path
+      .split('/')
+      .map(p => p.trim())
+      .filter(p => p !== '');
+    
+    if (rawParts.length === 0) {
+      console.warn('Skipping empty path entry', entry);
+      await deleteIndexedDB('syncQueue', entry.id).catch(() => {});
+      continue;
+    }
+    
+    const pathParts = rawParts.map(p => sanitizeKey(p));
+    
+    // 🔒 Prevent structural injection
+    if (pathParts.includes('schools') || pathParts.includes('teachers')) {
+      console.warn('Illegal path injection attempt:', entry.path);
+      await deleteIndexedDB('syncQueue', entry.id);
+      continue;
+    }
+    
+    // 🔒 Enforced teacher-level structure
+    const fullParts = [
+      'schools',
+      schoolId,
+      'teachers',
+      teacherId,
+      ...pathParts
+    ];
+    
+    // Firestore document paths must be even length
+    if (fullParts.length % 2 !== 0) {
+      console.warn('Invalid path (odd segments) - removing:', entry.path);
+      await deleteIndexedDB('syncQueue', entry.id);
+      continue;
+    }
+    
+    let docRef;
+    try {
+      docRef = doc(fdb, ...fullParts);
+    } catch (e) {
+      console.error('Failed to build docRef for', fullParts, e);
+      await deleteIndexedDB('syncQueue', entry.id);
+      continue;
+    }
+    
+    // Ignore base64 student photo sync
+    if (
+      pathParts[0] === 'students' &&
+      entry.data &&
+      typeof entry.data.photo === 'string' &&
+      entry.data.photo.startsWith('data:')
+    ) {
+      entry.data.photo = '';
+    }
+    
+    try {
+      
+      if (entry.action === 'set') {
+        
+        let payloadData = entry.data || {};
+        
+        if (typeof payloadData === 'object') {
+          payloadData = {
+            ...payloadData,
+            schoolId,
+            teacherId,
+            owner: teacherId,
+            syncedAt: Date.now()
+          };
         }
         
-        const rawParts = entry.path.split('/').map(p => p.trim()).filter(p => p !== '');
-        if (rawParts.length === 0) {
-          console.warn('Skipping empty path entry', entry);
-          await deleteIndexedDB('syncQueue', entry.id).catch(e => console.error('Delete failed', e.name, e.message));
-          continue;
-        }
-        const pathParts = rawParts.map(p => sanitizeKey(p));
+        const payload = removeUndefined(payloadData);
         
-        const fullParts = ['schools', schoolId, ...pathParts];
+        await setDoc(docRef, payload, { merge: true });
         
-        if (fullParts.length % 2 !== 0) {
-          console.warn('Invalid path (odd segments) - removing from queue:', entry.path);
-          await deleteIndexedDB('syncQueue', entry.id).catch(e => console.error('Delete failed', e.name, e.message));
-          continue;
-        }
+      } else if (entry.action === 'delete') {
         
-        let docRef;
-        try {
-          docRef = doc(fdb, ...fullParts);
-        } catch (e) {
-          console.error('Failed to build docRef for', fullParts, e);
-          await deleteIndexedDB('syncQueue', entry.id).catch(err => console.error('Delete failed', err.name, err.message));
-          continue;
-        }
+        await deleteDoc(docRef);
         
-        // Ignore photo upload for students - sync other details only
-        if (pathParts[0] === 'students' && entry.data && typeof entry.data.photo === 'string' && entry.data.photo.startsWith('data:')) {
-          entry.data.photo = ''; // Don't sync photo to Firestore
-        }
-        
-        try {
-          if (entry.action === 'set') {
-            const payload = removeUndefined(entry.data || {});
-            await setDoc(docRef, payload, { merge: true });
-          } else if (entry.action === 'delete') {
-            await deleteDoc(docRef);
-          } else {
-            console.warn('Unknown action:', entry.action);
-          }
-          await deleteIndexedDB('syncQueue', entry.id);
-        } catch (err) {
-          console.error('Sync failed for', entry, err.code, err.message);
-          if (err.code === 'invalid-argument') {
-            console.warn('Invalid argument - removing bad entry:', entry);
-            await deleteIndexedDB('syncQueue', entry.id);
-          }
-          updateSyncStatus('Sync Error — retrying later', '#ff4e50');
-        }
+      } else {
+        console.warn('Unknown action:', entry.action);
       }
       
-      try {
-        await downloadDataFromFirebase(schoolId);
-        updateSyncStatus('All Data Synced ✓', '#00cc88');
-      } catch (e) {
-        console.warn('Download failed', e);
-        updateSyncStatus('Partial Sync — check console', '#ffcc00');
+      await deleteIndexedDB('syncQueue', entry.id);
+      
+    } catch (err) {
+      
+      console.error('Sync failed for', entry, err.code, err.message);
+      
+      if (err.code === 'invalid-argument') {
+        await deleteIndexedDB('syncQueue', entry.id);
       }
+      
+      updateSyncStatus('Sync Error — retrying later', '#ff4e50');
     }
+  }
+  
+  try {
+    await safeRestore_VB(schoolId);
+    updateSyncStatus('All Data Synced ✓', '#00cc88');
+  } catch (e) {
+  console.error("🔥 REAL SYNC ERROR:", e);
+  updateSyncStatus('Partial Sync — check console', '#ffcc00');
+  throw e; // Let it crash so we see full error
+}
+}
 
-    async function triggerSync() {
-      if (navigator.onLine) {
-        syncData(); // No await, background
-      }
-    }
-
-
+async function triggerSync() {
+  if (navigator.onLine) {
+    syncData();
+  }
+}
 
 
 
@@ -2056,14 +2117,21 @@ async function queueFeesSync(className, feeEntry) {
   }
 }
 
-// Automatic sync of all fees
+
+
+// Automatic sync of all fees (Version B - Teacher Isolated)
 async function autoSyncAllFees() {
   if (!navigator.onLine) return;
   
-  const currentUser = auth.currentUser;
-  if (!currentUser?.schoolId) return;
+  const user = auth.currentUser;
+  if (!user) return;
   
-  const schoolId = sanitizeKey(String(currentUser.schoolId));
+  const profile = await getIndexedDB('userProfile', user.uid).catch(() => null);
+  if (!profile?.schoolId) return;
+  
+  const schoolId = sanitizeKey(String(profile.schoolId));
+  const teacherId = user.uid;
+  
   updateSyncStatus('Syncing fees…', '#f9d423');
   
   let classesData = await getIndexedDB('classes').catch(() => []);
@@ -2073,49 +2141,119 @@ async function autoSyncAllFees() {
   }
   
   for (let cls of classesData) {
-    const className = cls.id;
-    const feesData = await getIndexedDB('fees', className).catch(() => null);
+    
+    const className = sanitizeKey(cls.id);
+    
+    const feesData = await getIndexedDB('fees', cls.id).catch(() => null);
     const classFees = feesData?.value || {};
     
-    const feesPath = `schools/${schoolId}/TeachMateCodes/${currentUser.code}/classes/${className}/fees`;
-    
     for (let studentId in classFees) {
+      
+      const sanitizedStudentId = sanitizeKey(studentId);
       const feeArray = Array.isArray(classFees[studentId]) ? classFees[studentId] : [];
+      
       for (let fee of feeArray) {
-        // Only valid fees
+        
         if (!fee.amount || fee.amount <= 0) continue;
+        
         const feeEntry = {
-          studentId,
+          studentId: sanitizedStudentId,
           amount: fee.amount,
-          date: fee.date,
-          timestamp: serverTimestamp()
+          date: fee.date || null,
+          schoolId,
+          teacherId,
+          owner: teacherId,
+          createdAt: Date.now(),
+          syncedAt: serverTimestamp()
         };
         
         try {
-          const docRef = doc(firestore, feesPath);
-          await setDoc(docRef, feeEntry, { merge: true });
+          
+          // 🔒 Teacher-isolated path (Version B)
+          const docRef = doc(
+            firestore,
+            'schools',
+            schoolId,
+            'teachers',
+            teacherId,
+            'classes',
+            className,
+            'fees',
+            crypto.randomUUID() // unique fee doc
+          );
+          
+          await setDoc(docRef, removeUndefined(feeEntry));
+          
         } catch (err) {
-          console.warn('Failed to sync fee, queueing for retry:', err);
-          await queueFeesSync(className, feeEntry);
+          
+          console.warn('Failed to sync fee, queueing:', err);
+          
+          await queueFeesSync(
+            `classes/${className}/fees/${crypto.randomUUID()}`,
+            feeEntry
+          );
         }
       }
     }
   }
   
-  // Retry queued fees
+  // 🔄 Retry queued fees (Version B compliant)
   let queue = await getIndexedDB('syncQueue').catch(() => []);
-  queue = queue.filter(q => q.path.includes('/fees')); // Only fees
+  if (!Array.isArray(queue)) queue = [];
+  
+  queue = queue.filter(q => q.path && q.path.includes('/fees/'));
+  
   for (let entry of queue) {
+    
     try {
-      const pathParts = entry.path.split('/').map(p => sanitizeKey(p));
-      const fullParts = ['schools', schoolId, ...pathParts];
+      
+      const rawParts = entry.path
+        .split('/')
+        .map(p => p.trim())
+        .filter(p => p !== '');
+      
+      const pathParts = rawParts.map(p => sanitizeKey(p));
+      
+      // 🔒 Prevent structural injection
+      if (pathParts.includes('schools') || pathParts.includes('teachers')) {
+        await deleteIndexedDB('syncQueue', entry.id);
+        continue;
+      }
+      
+      const fullParts = [
+        'schools',
+        schoolId,
+        'teachers',
+        teacherId,
+        ...pathParts
+      ];
+      
+      if (fullParts.length % 2 !== 0) {
+        await deleteIndexedDB('syncQueue', entry.id);
+        continue;
+      }
+      
       const docRef = doc(firestore, ...fullParts);
-      await setDoc(docRef, entry.data, { merge: true });
+      
+      await setDoc(docRef, removeUndefined({
+        ...entry.data,
+        schoolId,
+        teacherId,
+        owner: teacherId,
+        syncedAt: serverTimestamp()
+      }));
+      
       await deleteIndexedDB('syncQueue', entry.id);
+      
     } catch (err) {
+      
       console.warn('Retry failed for queued fee', entry, err);
+      
       entry.retries = (entry.retries || 0) + 1;
-      if (entry.retries > 5) await deleteIndexedDB('syncQueue', entry.id); // discard after 5 retries
+      
+      if (entry.retries > 5) {
+        await deleteIndexedDB('syncQueue', entry.id);
+      }
     }
   }
   
@@ -2129,82 +2267,214 @@ window.addEventListener('online', () => autoSyncAllFees());
 
 
 
-// ──────────────────────────────────────────────────────────────
-//  ENHANCED DOWNLOAD FROM FIREBASE
-//  Preserves offline changes and fully restores all collections
-// ──────────────────────────────────────────────────────────────
-async function downloadDataFromFirebase(schoolId) {
-  // Collections that include photos
-  const collectionsWithPhotos = ['students'];
+// ===============================
+// RESTORE CONTROLLER STATE
+// ===============================
+let isRestoring = false;
+let restoreRetryCount = 0;
+let restoreCollectionIndex = 0;
+
+const MAX_RESTORE_RETRIES = 5;
+
+// ===============================
+// AUTO RESTORE ON LOGIN (RULE-SAFE VERSION)
+// ===============================
+// Note: We removed the duplicate listener. This single listener now safely handles 
+// checking the Firestore user document BEFORE triggering the restore.
+auth.onAuthStateChanged(async (user) => {
   
-  // Make sure ALL_COLLECTIONS includes attendanceHistory and feesHistory
-  const expectedCollections = ['students', 'results', 'attendanceHistory', 'feesHistory',
-    // ADD THESE (DO NOT REMOVE ANYTHING)
-'attendanceHistory',
-'attendanceSummary',
-'feesHistory'
-  ];
-  for (const coll of expectedCollections) {
-    if (!ALL_COLLECTIONS.includes(coll)) ALL_COLLECTIONS.push(coll);
+  if (!user) {
+    isRestoring = false;
+    restoreRetryCount = 0;
+    restoreCollectionIndex = 0;
+    return;
   }
   
-  for (const coll of ALL_COLLECTIONS) {
+  if (isRestoring) {
+    console.log('Restore already running — duplicate trigger blocked');
+    return;
+  }
+  
+  try {
+    
+    // 🔥 STEP 1: Wait for Firestore profile (Guarantees rules will pass)
+    // IMPORTANT: Make sure you use your Firestore instance here (fdb or firestore), NOT db
+    const profileRef = doc(fdb, "users", user.uid); 
+    const snap = await getDoc(profileRef);
+    
+    if (!snap.exists()) {
+      console.warn("⏳ Firestore profile not yet created. Restore blocked until registration completes.");
+      return;
+    }
+    
+    const serverProfile = snap.data();
+    
+    if (!serverProfile.schoolId || !serverProfile.role) {
+      console.error("🚨 Invalid Firestore profile (Missing schoolId or role). Restore blocked.");
+      return;
+    }
+    
+    const schoolId = sanitizeKey(String(serverProfile.schoolId));
+    
+    // 🔥 STEP 2: Sync IndexedDB to Firestore truth
+    const localProfile = await getIndexedDB('userProfile', user.uid).catch(() => null);
+    
+    if (!localProfile ||
+      localProfile.schoolId !== serverProfile.schoolId ||
+      localProfile.role !== serverProfile.role) {
+      
+      console.log("🔄 Syncing IndexedDB profile with Firestore truth");
+      await setIndexedDB('userProfile', user.uid, { ...localProfile, ...serverProfile });
+    }
+    
+    // 🔥 STEP 3: Now 100% safe to restore - rules will evaluate to true
+    await safeRestore_VB(schoolId);
+    
+  } catch (err) {
+    console.error('Auto restore initialization failed:', err);
+  }
+});
+
+// ===============================
+// SAFE RESTORE WRAPPER
+// ===============================
+async function safeRestore_VB(schoolId) {
+  if (isRestoring) return;
+  
+  isRestoring = true;
+  
+  if (typeof updateSyncStatus === 'function') {
+    updateSyncStatus('Restoring data…', '#f9d423');
+  }
+  
+  try {
+    await downloadDataFromFirebase_VB(schoolId);  
+    
+    restoreRetryCount = 0;  
+    restoreCollectionIndex = 0;  
+    isRestoring = false;  
+    
+    if (typeof updateSyncStatus === 'function') {  
+      updateSyncStatus('Data Restored ✓', '#00cc88');  
+    }
+  } catch (err) {
+    console.error("🔥 REAL ERROR INSIDE RESTORE:", err);  
+    isRestoring = false;  
+    throw err; 
+  }
+}
+
+// ===============================
+// CORE DOWNLOAD ENGINE (VERSION B)
+// ===============================
+async function downloadDataFromFirebase_VB(schoolId) {
+  
+  const user = auth.currentUser;
+  if (!user) throw new Error('User not authenticated');
+  
+  const teacherId = user.uid;
+  
+  // 🛡 STRICT VALIDATION: Prevent invalid-argument errors at the source
+  if (!schoolId || !teacherId) {
+    throw new Error(`Invalid tenant context. School: ${schoolId}, Teacher: ${teacherId}`);
+  }
+  
+  const collectionsWithPhotos = ['students'];
+  
+  const expectedCollections = [
+    'students',
+    'classes',
+    'results',
+    'attendanceHistory',
+    'attendanceSummary',
+    'feesHistory',
+    'feesConfig'
+  ];
+  
+  if (typeof ALL_COLLECTIONS === 'undefined') {
+    window.ALL_COLLECTIONS = [...expectedCollections];
+  }
+  
+  for (const coll of expectedCollections) {
+    if (!ALL_COLLECTIONS.includes(coll)) {
+      ALL_COLLECTIONS.push(coll);
+    }
+  }
+  
+  for (let i = restoreCollectionIndex; i < ALL_COLLECTIONS.length; i++) {
+    const coll = ALL_COLLECTIONS[i];
+    restoreCollectionIndex = i;
+    
+    // 🛡 STRICT VALIDATION: Ensure collection name is valid
+    if (!coll || typeof coll !== 'string') {
+        console.warn('Skipping invalid collection name:', coll);
+        continue;
+    }
+
+    console.log(`Restoring collection: ${coll}`);
+    
     try {
-      const collRef = collection(fdb, 'schools', schoolId, coll);
+      // 🔥 FIX: Changed `db` to `fdb`. 
+      // Ensure 'fdb' matches the variable name you use for getFirestore(app)
+      const collRef = collection(
+        fdb, 
+        'schools',
+        schoolId,
+        'teachers',
+        teacherId,
+        coll
+      );
+      
       const snapshot = await getDocs(collRef);
       const serverIds = [];
       
       for (const d of snapshot.docs) {
         const serverData = d.data() || {};
         const docId = d.id;
+        
         serverIds.push(docId);
         
-        // Get local record if exists
         const localData = await getIndexedDB(coll, docId);
         
-        // Merge server data with local photo if needed
-        let dataToSave = { ...serverData, id: docId };
-        if (collectionsWithPhotos.includes(coll) && localData && 'photo' in localData) {
+        let dataToSave = {
+          ...serverData,
+          id: docId
+        };
+        
+        if (collectionsWithPhotos.includes(coll) && localData && localData.photo) {
           dataToSave.photo = localData.photo;
         }
         
-        // Preserve unsynced local changes
-        if (localData && localData.pendingSync) {
-          dataToSave = { ...dataToSave, ...localData };
-        }
-        
-        // Save to IndexedDB
         await setIndexedDB(coll, docId, dataToSave);
       }
       
-      // Clean up only fully synced local records
       const localAll = await getIndexedDB(coll);
+      
       if (Array.isArray(localAll)) {
         for (const local of localAll) {
-          if (!local) continue;
-          if (typeof local.id === 'undefined') continue;
-          
-          const isPending = local.pendingSync === true;
+          if (!local || typeof local.id === 'undefined') continue;
           const existsOnServer = serverIds.includes(local.id);
-          
-          // Delete ONLY if record exists on server AND not pending
-          if (existsOnServer && !isPending) continue; // safe, keep it
-          if (!existsOnServer && !isPending) {
+          if (!existsOnServer) {
             await deleteIndexedDB(coll, local.id);
           }
         }
       }
       
-      console.log(`✔ Synced collection: ${coll} (records: ${snapshot.docs.length})`);
+      console.log(`✔ Synced collection (Teacher ${teacherId}): ${coll} (${snapshot.docs.length})`);
+      
     } catch (err) {
-      console.warn(`⚠ Failed to sync ${coll}:`, err.name, err.message);
+      console.warn(`Failed restoring collection ${coll}`, err);
+      throw err;
     }
   }
   
-  // Trigger UI refresh after all collections are synced
-  if (typeof refreshUI === 'function') refreshUI();
+  restoreCollectionIndex = 0;
   
-  console.log('✅ Full Firebase download complete');
+  if (typeof refreshUI === 'function') {
+    refreshUI();
+  }
+  
+  console.log('✅ Full Version B Restore Complete');
 }
 
 
@@ -2348,7 +2618,7 @@ window.showSection = function(section) {
     hideAllSections();
     document.getElementById(section).style.display = 'block';
     document.getElementById('dashboard').style.display = 'block';
-    
+
     if (section === 'attendance') loadAttendanceStudents();
     if (section === 'results') loadResultsStudents();
     if (section === 'fees') loadFeesStudents();
@@ -2567,8 +2837,8 @@ window.addStudent = async function() {
   if (rawId.includes('/')) { showMessage(msgBox, "Student ID cannot contain '/'", '#d9534f'); hideLoading(); return; }
   if (phone && !/^\+260[0-9]{9}$/.test(phone)) { showMessage(msgBox, "Phone must be +260XXXXXXXXX", '#d9534f'); hideLoading(); return; }
 
-  
-  
+
+
   const studentId = normId(rawId);
 
   // Lock UI
@@ -2867,37 +3137,37 @@ window.loadAttendanceStudents = async function() {
   const classEl = document.getElementById('attendance-class');
   if (!tbody || !classEl) return;
   tbody.innerHTML = '';
-  
+
   const className = classEl.value;
   if (!className) return;
-  
+
   try {
     showLoading('Loading students...');
     let students = await getIndexedDB('students');
     if (!Array.isArray(students)) students = [];
-    
+
     let attendance = await getIndexedDB(STORE);
     if (!Array.isArray(attendance)) attendance = [];
-    
+
     const now = new Date().getTime();
     const todayAttendance = attendance.filter(a => a.date === today && a.classId === className);
     const todayMap = new Map();
-    
+
     todayAttendance.forEach(rec => {
       const recTime = new Date(rec.updatedAt).getTime();
       if (now - recTime < 3600000) {
         todayMap.set(normId(rec.studentId), !!rec.present);
       }
     });
-    
+
     const frag = document.createDocumentFragment();
     const classStudents = students.filter(s => s.classId === className);
-    
+
     classStudents.forEach(s => {
       const sanitized = normId(s.id);
       const att = todayMap.get(sanitized);
       const tr = document.createElement('tr');
-      
+
       // ⬇️ PHOTO HTML (GLOBAL ZOOM COMPATIBLE)
       const photoHtml = s.photo ?
         `<img 
@@ -2908,7 +3178,7 @@ window.loadAttendanceStudents = async function() {
             alt="${escapeHTML(s.name)}'s photo"
           >` :
         `<span class="no-data">No photo</span>`;
-      
+
       const presentActive = att === true ? 'active' : '';
       const absentActive = att === false ? 'active' : '';
 
@@ -2966,13 +3236,13 @@ tr.appendChild(tdStatus);
 
 frag.appendChild(tr);
 
-      
+
       if (att === undefined) tr.style.backgroundColor = '#fffbe6';
       frag.appendChild(tr);
     });
-    
+
     tbody.appendChild(frag);
-    
+
     // ------------------------------
     // Status button logic (UNCHANGED)
     // ------------------------------
@@ -2983,30 +3253,30 @@ frag.appendChild(tr);
           .querySelectorAll(`#attendance-table [data-id="${CSS.escape(id)}"]`)
           .forEach(b => b.classList.remove('active'));
         this.classList.add('active');
-        
+
         const saveBtn =
           document.getElementById('saveAttendanceBtn') ||
           document.getElementById('save-attendance-btn');
-        
+
         if (saveBtn) {
           saveBtn.disabled =
             document.querySelectorAll('#attendance-table .status-btn.active').length === 0;
         }
       });
     });
-    
+
     const saveBtn =
       document.getElementById('saveAttendanceBtn') ||
       document.getElementById('save-attendance-btn');
-    
+
     if (saveBtn) {
       saveBtn.disabled =
         document.querySelectorAll('#attendance-table .status-btn.active').length === 0;
     }
-    
+
     // 🚫 NO LOCAL PHOTO ZOOM LISTENERS HERE
     // ✅ Global zoom-photo JS handles all .zoomable / [data-zoomable] images
-    
+
   } catch (err) {
     console.error('loadAttendanceStudents failed', err);
     alert('⚠️ Failed to load students for attendance. See console.');
@@ -3268,7 +3538,7 @@ frag.appendChild(tr);
 (function initAttendanceAutoListener() {
   if (window.__ATTENDANCE_AUTO_LISTENER__) return;
   window.__ATTENDANCE_AUTO_LISTENER__ = true;
-  
+
   const debounce = (fn, delay = 300) => {
     let t;
     return (...args) => {
@@ -3276,24 +3546,24 @@ frag.appendChild(tr);
       t = setTimeout(() => fn(...args), delay);
     };
   };
-  
+
   const triggerUpdate = debounce(async () => {
     // Get input values
     const classEl = document.getElementById('attendance-class');
     const studentIdInput = (document.getElementById('history-student-id')?.value || '').trim();
     const termInput = (document.getElementById('history-term')?.value || '').trim();
     const weekInput = (document.getElementById('history-week')?.value || '').trim();
-    
+
     // 1️⃣ Only trigger if all fields have a value
     if (!classEl?.value || !studentIdInput || !termInput || !weekInput) return;
-    
+
     const historyDiv = document.getElementById('attendance-history');
     if (historyDiv) {
       // 2️⃣ Show loading hint
       historyDiv.innerHTML = '<p>Loading attendance history...</p>';
       historyDiv.style.display = 'block';
     }
-    
+
     // Call the attendance history function
     if (typeof window.viewAttendanceHistory === 'function') {
       await window.viewAttendanceHistory();
@@ -3304,7 +3574,7 @@ frag.appendChild(tr);
       }
     }
   }, 600);
-  
+
   document.addEventListener('input', e => {
     if (
       e.target.id === 'history-student-id' ||
@@ -3315,7 +3585,7 @@ frag.appendChild(tr);
       triggerUpdate();
     }
   });
-  
+
 })();
 
 
@@ -3646,8 +3916,8 @@ frag.appendChild(tr);
     }
   };
 
-  
-  
+
+
 window.saveResults = async function () {
       const classEl = document.getElementById('results-class');
       const subjectEl = document.getElementById('subject');
@@ -3656,17 +3926,17 @@ window.saveResults = async function () {
       const categoryEl = document.getElementById('test-category');
       const levelEl = document.getElementById('results-level');
       if (!classEl || !subjectEl || !testNameEl || !categoryEl || !levelEl) return showToast('Missing UI elements', 'error');
-  
+
       const className = classEl.value.trim();
       const subject = subjectEl.value.trim();
       const testName = testNameEl.value.trim();
       const date = (dateEl && dateEl.value) ? dateEl.value : todayString();
       const category = categoryEl.value;
       const level = levelEl.value;
-  
+
       if (!className || !subject || !testName || !category || !level) return showToast('Fill all required fields including level', 'error');
       if (subject.includes('/') || testName.includes('/')) return showToast('Subject or Test Name cannot contain "/"', 'error');
-  
+
       const inputs = Array.from(document.querySelectorAll('#results-table .result-input'));
       const scores = {};
       for (const inp of inputs) {
@@ -3682,7 +3952,7 @@ window.saveResults = async function () {
         scores[sid] = round2(parsed);
       }
       if (Object.keys(scores).length === 0) return showToast('Enter at least one score', 'error');
-  
+
       const recordId = `${key(className)}-${key(subject)}-${key(category)}-${key(testName)}-${Date.now()}`; // Enhanced: append timestamp to avoid collisions
       const now = new Date().toISOString();
       const record = {
@@ -3697,7 +3967,7 @@ window.saveResults = async function () {
         createdAt: now,
         updatedAt: now
       };
-  
+
       try {
         showLoading('Saving results...');
         await setIndexedDB('results', recordId, record);
@@ -3717,10 +3987,10 @@ window.saveResults = async function () {
         showToast('⚠️ Failed to save results', 'error');
       }
     };
-  
-  
-  
-  
+
+
+
+
   window.viewResultsHistory = async function () {
     const classEl = document.getElementById('results-class');
     const searchIdEl = document.getElementById('results-search-student-id');
@@ -4316,7 +4586,7 @@ window.saveResults = async function () {
           // clear & setup
           d3Container.innerHTML = `<h4>Top Performers (D3 - Grade Colored)</h4><svg id="d3svg-bars" width="100%" height="240" viewBox="0 0 600 240" preserveAspectRatio="xMidYMid meet"></svg>
                                    <h5 style="margin-top:20px">Score Distribution Histogram</h5><svg id="d3svg-hist" width="100%" height="200" viewBox="0 0 600 200" preserveAspectRatio="xMidYMid meet"></svg>`;
-          
+
           // Bar chart
           const svgBars = d3.select('#d3svg-bars');
           const width = 600;
@@ -4553,24 +4823,24 @@ window.saveResults = async function () {
       <div class="header"><h1>${escapeHTML(title || 'Results Report')}</h1>
       <p>Generated: ${new Date().toLocaleString()}</p></div>`;
 
- 
+
       let students = await getIndexedDB('students');
       if (!Array.isArray(students)) students = [];
       const studentMap = new Map(students.map(s => [s.id, s]));
-      
+
       let results = await getIndexedDB('results');
       if (!Array.isArray(results)) results = [];
       results = results.filter(r => {
         const c = r.classId || r.class || r.className;
         return c && String(c).trim().toLowerCase() === String(className).trim().toLowerCase();
       });
-      
+
       if (category) results = results.filter(r => r.category === category);
       if (testName) results = results.filter(r => r.testName === testName);
       if (level) results = results.filter(r => r.level === level);
-      
+
       let reportLevel = level || results[0]?.level || 'Senior Secondary';
-      
+
       // Full class report (individual removed)
       const studentBuckets = {};
       results.forEach(r => {
@@ -4579,14 +4849,14 @@ window.saveResults = async function () {
           studentBuckets[sid].push(Number(score));
         }
       });
-      
+
       const rows = students.map(s => {
         const arr = studentBuckets[s.id] || [];
         const mean = arr.length ? (arr.reduce((a, b) => a + (Number(b) || 0), 0) / arr.length) : 0;
         const { grade, remark } = zambianGrade(mean, reportLevel);
         return { id: s.id, name: s.name, photo: s.photo || '', mean: round2(mean), grade, remark };
       }).sort((a, b) => b.mean - a.mean);
-      
+
       html += `<table><thead><tr><th>Rank</th><th>ID</th><th>Student</th><th>Avg %</th><th>Grade</th><th>Remark</th></tr></thead><tbody>`;
       rows.forEach((r, i) => {
         html += `<tr>
@@ -4599,7 +4869,7 @@ window.saveResults = async function () {
       </tr>`;
       });
       html += `</tbody></table>`;
-      
+
       if (includeAnalytics) {
         const { classAverage, passRate } = await computeClassStats(className, reportLevel);
         // Enhanced inline SVG (auto bar width, better scaling)
@@ -4625,7 +4895,7 @@ window.saveResults = async function () {
         svg += `</svg>`;
         html += `<h3>Analytics Summary</h3><p>Class average: ${round2(classAverage)}%</p><p>Pass rate: ${escapeHTML(String(passRate))}%</p>${svg}`;
       }
-      
+
       // Optional comments for class (prompt if needed, but default empty)
       if (comments) {
         html += `<div class="comments"><h4>Teacher's Remarks</h4>
@@ -4633,7 +4903,7 @@ window.saveResults = async function () {
         <div class="signature"><p>Teacher Signature: __________________________  Date: __________</p></div>
       </div>`;
       }
-      
+
       html += `<div class="footer">TeachMate Results Report — Generated on ${todayString()}</div></body></html>`;
       return html;
     }
@@ -4662,13 +4932,13 @@ async function buildStudentPdfDefinition(
     // -------------------------------
     let students = await getIndexedDB('students');
     if (!Array.isArray(students)) students = [];
-    
+
     // Normalized ID helper
     const normalize = v => String(v ?? '').trim().toLowerCase();
-    
+
     // Match student ID (case-insensitive, trimmed)
     const student = students.find(s => normalize(s.id) === normalize(studentId));
-    
+
     // Fallback if student missing — return an error object
     if (!student) {
       console.error(`❌ Student not found for ID: ${studentId}`);
@@ -4684,37 +4954,37 @@ async function buildStudentPdfDefinition(
         }
       };
     }
-    
+
     // -------------------------------
     // 2️⃣ Prepare Entries (Manual or History)
     // -------------------------------
     let reportLevel = level || 'Senior Secondary';
     let entries = Array.isArray(manualEntries) ? manualEntries.slice() : [];
-    
+
     // Fallback: fetch from results DB if no manual entries
     if (entries.length === 0) {
       let results = await getIndexedDB('results');
       if (!Array.isArray(results)) results = [];
-      
+
       results = results.filter(r => {
         const c = r.classId || r.class || r.className;
         if (!c) return false;
         if (String(c).trim().toLowerCase() !== String(className).trim().toLowerCase()) return false;
         if (!r.scores || typeof r.scores !== 'object') return false;
-        
+
         // robust check: see if any key in r.scores matches the studentId when normalized
         const keys = Object.keys(r.scores);
         return keys.some(k => normalize(k) === normalize(studentId));
       });
-      
+
       if (category) results = results.filter(r => r.category === category);
       if (testName) results = results.filter(r => r.testName === testName);
       if (level) results = results.filter(r => r.level === level);
-      
+
       if (!reportLevel && results.length) {
         reportLevel = results[0].level || 'Senior Secondary';
       }
-      
+
       entries = results.map(r => {
         // retrieve the actual score by matching normalized key
         let scoreValue = null;
@@ -4739,7 +5009,7 @@ async function buildStudentPdfDefinition(
         };
       }).sort((a, b) => (a.date < b.date ? 1 : -1));
     }
-    
+
     // -------------------------------
     // 3️⃣ Build PDF Definition Content
     // -------------------------------
@@ -4750,7 +5020,7 @@ async function buildStudentPdfDefinition(
       { text: `Class: ${pdfClass || className} | Teacher: ${teacher || 'Teacher Name'} | Phone: ${phone || 'Phone'}`, alignment: 'center', margin: [0, 0, 0, 20] },
       { text: `${student.name || 'Unknown Student'} (ID: ${String(studentId)})`, style: 'studentHeader' }
     ];
-    
+
     // Add student photo if available (assuming it's a data URI)
     if (student.photo) {
       content.push({
@@ -4760,7 +5030,7 @@ async function buildStudentPdfDefinition(
         margin: [0, 0, 0, 20]
       });
     }
-    
+
     if (!entries.length) {
       content.push({
         text: 'No results found for this student.',
@@ -4784,7 +5054,7 @@ async function buildStudentPdfDefinition(
           e.remark || ''
         ]);
       });
-      
+
       content.push({
         table: {
           headerRows: 1,
@@ -4794,7 +5064,7 @@ async function buildStudentPdfDefinition(
         layout: 'lightHorizontalLines',
         margin: [0, 20, 0, 20]
       });
-      
+
       // Overall Average
       const avg = round2(entries.reduce((a, e) => a + (Number(e.score) || 0), 0) / entries.length);
       const { grade: overallGrade, remark: overallRemark } = zambianGrade(avg, reportLevel);
@@ -4803,7 +5073,7 @@ async function buildStudentPdfDefinition(
         style: 'summaryHeader',
         margin: [0, 10, 0, 5]
       });
-      
+
       // Analytics Summary
       const { mean, pass, passRate } = await computeStudentStats(className, studentId, reportLevel);
       content.push(
@@ -4812,11 +5082,11 @@ async function buildStudentPdfDefinition(
         { text: `Pass/Fail: ${pass}` },
         { text: `Pass Rate: ${passRate}%` }
       );
-      
+
       // Placeholder for chart (will be inserted in export if applicable)
       content.push('{{CHART_PLACEHOLDER}}');
     }
-    
+
     // Comments & Signature
     if (comments) {
       content.push(
@@ -4825,7 +5095,7 @@ async function buildStudentPdfDefinition(
         { text: 'Teacher Signature: __________________________  Date: __________', alignment: 'right' }
       );
     }
-    
+
     const dd = {
       pageSize: 'A4',
       pageMargins: [40, 60, 40, 60],
@@ -4841,10 +5111,10 @@ async function buildStudentPdfDefinition(
         footer: { fontSize: 10, color: '#777', margin: [0, 20, 0, 0] }
       }
     };
-    
+
     console.log('DEBUG: buildStudentPdfDefinition generated for studentId:', studentId);
     return { dd, entries }; // Return dd and entries for chart generation
-    
+
   } catch (err) {
     console.error('❌ buildStudentPdfDefinition error:', err);
     return {
@@ -4892,39 +5162,39 @@ function autoChunkTables(doc, options = {}) {
     rowsPerPage = 20,
       pageBreakHTML = '<div style="page-break-after: always;"></div>'
   } = options;
-  
+
   const tables = Array.from(doc.querySelectorAll('table'));
-  
+
   tables.forEach(table => {
     const tbody = table.querySelector('tbody');
     if (!tbody) return;
-    
+
     const rows = Array.from(tbody.querySelectorAll('tr'));
     if (rows.length <= rowsPerPage) return;
-    
+
     const thead = table.querySelector('thead');
     const parent = table.parentNode;
-    
+
     // Remove original table
     parent.removeChild(table);
-    
+
     for (let i = 0; i < rows.length; i += rowsPerPage) {
       const newTable = document.createElement('table');
-      
+
       // clone header
       if (thead) {
         const newThead = thead.cloneNode(true);
         newTable.appendChild(newThead);
       }
-      
+
       const newTbody = document.createElement('tbody');
       rows.slice(i, i + rowsPerPage).forEach(r => {
         newTbody.appendChild(r.cloneNode(true));
       });
-      
+
       newTable.appendChild(newTbody);
       parent.appendChild(newTable);
-      
+
       if (i + rowsPerPage < rows.length) {
         parent.insertAdjacentHTML('beforeend', pageBreakHTML);
       }
@@ -4939,17 +5209,17 @@ async function waitForStableLayout(doc, timeout =20000) {
     let lastHeight = 0;
     let stableCycles = 0;
     let rafStable = 0;
-    
+
     const check = () => {
       const h = doc.body.scrollHeight;
-      
+
       if (h === lastHeight) {
         stableCycles++;
       } else {
         stableCycles = 0;
         lastHeight = h;
       }
-      
+
       // require BOTH:
       // - height stable for time
       // - multiple animation frames stable
@@ -4962,10 +5232,10 @@ async function waitForStableLayout(doc, timeout =20000) {
       } else {
         rafStable = 0;
       }
-      
+
       requestAnimationFrame(check);
     };
-    
+
     requestAnimationFrame(check);
     setTimeout(resolve, timeout);
   });
@@ -4988,18 +5258,18 @@ async function ensureChartJs() {
 // Generate chart image as base64
 async function generateChartImage(entries) {
   if (!entries || !entries.length) return null;
-  
+
   await ensureChartJs();
-  
+
   const canvas = document.createElement('canvas');
   canvas.width = 500;
   canvas.height = 300;
   canvas.style.display = 'none';
   document.body.appendChild(canvas);
-  
+
   const chartLabels = entries.map(e => `${e.subject} (${e.testName})`);
   const chartData = entries.map(e => e.score);
-  
+
   new Chart(canvas, {
     type: 'bar',
     data: {
@@ -5022,7 +5292,7 @@ async function generateChartImage(entries) {
       }
     }
   });
-  
+
   const dataURL = canvas.toDataURL('image/png');
   document.body.removeChild(canvas);
   return dataURL;
@@ -5034,18 +5304,18 @@ async function exportStudentResultsPDF(className, studentId, opts = {}, manualEn
     // Validation
     if (!className) return showToast('⚠️ Please select a class', 'error');
     if (!studentId) return showToast('⚠️ Enter a valid student ID', 'error');
-    
+
     showLoading('Preparing student PDF report...');
-    
+
     // Generate PDF definition
     const { dd, entries } = await buildStudentPdfDefinition(className, studentId, opts, manualEntries);
-    
+
     if (!dd || !dd.content) {
       hideLoading();
       showToast('⚠️ No valid content to print for this student', 'error');
       return;
     }
-    
+
     // Generate chart image if applicable
     const chartImage = await generateChartImage(entries);
     if (chartImage) {
@@ -5063,16 +5333,16 @@ async function exportStudentResultsPDF(className, studentId, opts = {}, manualEn
       // Remove placeholder if no chart
       dd.content = dd.content.filter(item => item !== '{{CHART_PLACEHOLDER}}');
     }
-    
+
     // Ensure pdfMake is loaded
     const pdfMake = await ensurePdfMake();
-    
+
     // Create and download PDF
     pdfMake.createPdf(dd).download(`student_${studentId}_report.pdf`);
-    
+
     hideLoading();
     showToast('✅ Student PDF downloaded successfully', 'success');
-    
+
   } catch (err) {
     console.error('❌ exportStudentResultsPDF error:', err);
     hideLoading();
@@ -5090,9 +5360,9 @@ async function exportResultsPDF(className, opts = {}) {
   try {
     showLoading('Preparing PDF report...');
     const html = await buildPrintableReportHTML(className, { ...opts, includeAnalytics: true });
-    
+
     const html2pdf = await ensureHtml2pdf();
-    
+
     // Create iframe
     const iframe = document.createElement('iframe');
     iframe.style.position = 'absolute';
@@ -5101,10 +5371,10 @@ async function exportResultsPDF(className, opts = {}) {
     iframe.style.width = '610px';
     iframe.style.height = 'auto';
     document.body.appendChild(iframe);
-    
+
     // Load content
     iframe.srcdoc = html;
-    
+
     // Wait for iframe to fully load
     await new Promise(resolve => {
       iframe.onload = async () => {
@@ -5119,7 +5389,7 @@ autoChunkTables(doc, {
 // force final layout flush
 doc.body.getBoundingClientRect();
 iframe.style.height = doc.body.scrollHeight + 'px';
-    
+
     resolve();
   } catch (e) {
     console.warn('Layout wait warning', e);
@@ -5127,14 +5397,14 @@ iframe.style.height = doc.body.scrollHeight + 'px';
   }
 };
     });
-    
+
     // Adjust iframe height
     try {
       const doc = iframe.contentDocument || iframe.contentWindow.document;
       const body = doc.body;
       const htmlEl = doc.documentElement;
-      
-      
+
+
 const doc1 = iframe.contentDocument;
 
 // 🔥 FORCE browser to finish layout
@@ -5142,11 +5412,11 @@ doc.body.getBoundingClientRect();
 
 // ✅ Measure final, stable height
 iframe.style.height = doc.body.scrollHeight + 'px';
-      
+
     } catch (e) {
       console.warn('Could not auto-size iframe, proceeding', e);
     }
-    
+
     // Small timeout to allow full layout
     setTimeout(async () => {
       try {
@@ -5178,7 +5448,7 @@ iframe.style.height = doc.body.scrollHeight + 'px';
 }
 
 
-  
+
 
 
   // -------------------------
@@ -5211,11 +5481,11 @@ iframe.style.height = doc.body.scrollHeight + 'px';
         if (!className) return showToast('Select a class', 'error');
         const level = document.getElementById('results-level-filter')?.value || document.getElementById('results-level')?.value || '';
         const category = document.getElementById('results-category-filter')?.value || '';
-        
+
 const testName = prompt('please leave the entry field down here blank to continue ☺️:', '') || '';
-        
-        
-        
+
+
+
         const comments = prompt('Enter teacher comments for the report📝:', '') || '';
         await exportResultsPDF(className, { title: `Results Report - ${className}`, level, category, comments, testName, includeAnalytics: true });
       } catch (e) { console.error(e); showToast('Export failed', 'error'); }
@@ -5398,7 +5668,7 @@ const syncLock = new Map();
 async function guardedAddToSyncQueue(key, action, data) {
   if (syncLock.get(key)) return;
   syncLock.set(key, true);
-  
+
   if (typeof addToSyncQueue === 'function') {
     try {
       await addToSyncQueue(key, action, data);
@@ -5450,12 +5720,12 @@ window.loadFeesStudents = async function() {
       let status = totalFullAmount > 0 && totalPaid >= totalFullAmount ? '<span class="paid">Fully Paid ✅</span>' :
         totalPaid > 0 ? '<span class="outstanding">Outstanding Balance</span>' :
         '<span class="unpaid">Not Paid ❌</span>';
-      
+
       const photoDisplay = s.photo ?
   `<img src="${escapeHTML(s.photo)}" class="student-photo zoomable" data-src="${escapeHTML(s.photo)}" data-student-id="${escapeHTML(s.id)}" alt="${escapeHTML(s.name)}'s photo">` :
   '<span class="no-data">No photo</span>';
-      
-      
+
+
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td>${escapeHTML(s.id)}</td>
@@ -5482,28 +5752,28 @@ function updateFeeStatus(event) {
   if (!row) return;
   const statusCell = row.querySelector('.status-cell');
   const amountInput = event.target;
-  
+
   // Convert input to number safely
   const inputValue = parseFloat(amountInput.value);
   if (isNaN(inputValue) || inputValue <= 0) {
     statusCell.innerHTML = '<span class="unpaid">Not Paid Yet ❌</span>';
     return;
   }
-  
+
   // Get total fees for the class
   const className = document.getElementById('fees-class').value;
   getIndexedDB('feesConfig', className).then(config => {
     const totalFees = config && !isNaN(config.totalAmount) ? Number(config.totalAmount) : 0;
-    
+
     let statusHtml = '';
-    
+
     if (totalFees <= 0) {
       // No total fee configured
       statusHtml = '<span class="unpaid">Not Paid ❌</span>';
     } else {
       // Use high-precision tolerance
       const tolerance = 0.001;
-      
+
       if (Math.abs(inputValue - totalFees) <= tolerance) {
         statusHtml = '<span class="paid">Fully Paid ✅</span>';
       } else if (inputValue > totalFees + tolerance) {
@@ -5512,7 +5782,7 @@ function updateFeeStatus(event) {
         statusHtml = '<span class="outstanding">Paid with Outstanding Balance</span>';
       }
     }
-    
+
     statusCell.innerHTML = statusHtml;
   });
 }
@@ -5530,15 +5800,15 @@ document.querySelectorAll('#fees-table input[type="number"]').forEach(input => {
 
 window.clearFeesInputs = function() {
   const rows = document.querySelectorAll('#fees-table tbody tr');
-  
+
   rows.forEach(row => {
     // Clear input
     const input = row.querySelector('input[type="number"]');
     if (input) input.value = '';
-    
+
     // TEMPORARILY reset session-paid amount
     row.dataset.sessionCleared = 'true';
-    
+
     // Force UI reset
     const statusCell = row.querySelector('.status-cell');
     statusCell.innerHTML = '<span class="unpaid">Not Paid ❌</span>';
@@ -5551,36 +5821,36 @@ window.saveFeesConfig = async function() {
   try {
     const classSelect = document.getElementById('fees-class');
     if (!classSelect) return alert('Class selector not found');
-    
+
     const className = classSelect.value;
     if (!className) return alert('Please select a class');
-    
+
     const totalFeesInput = document.getElementById('total-fees-amount');
     if (!totalFeesInput) return alert('Total fees input not found');
-    
+
     const totalAmount = parseFloat(totalFeesInput.value);
     if (isNaN(totalAmount) || totalAmount <= 0) return alert('Enter a valid positive total fees amount');
-    
+
     // Prepare the feesConfig object
     const now = new Date().toISOString();
     const feesConfigData = { id: className, totalAmount, updatedAt: now };
-    
+
     // Save into IndexedDB
     await setIndexedDB('feesConfig', className, feesConfigData);
-    
+
 // Add to sync queue if syncing is used (guarded)
 if (typeof addToSyncQueue === 'function') {
   await guardedAddToSyncQueue(`feesConfig/${className}`, 'set', feesConfigData);
   guardedTriggerSync();
 }
-    
+
     // Reset all input amounts and statuses to Not Paid
     const tbody = document.querySelector('#fees-table tbody');
     if (tbody) {
       tbody.querySelectorAll('input[type="number"]').forEach(inp => inp.value = '');
       tbody.querySelectorAll('.status-cell').forEach(cell => cell.innerHTML = '<span class="unpaid">Not Paid Yet ❌</span>');
     }
-    
+
     alert(`Total fees set to ${totalAmount} ZMW for ${className}`);
   } catch (error) {
     console.error('Fees configuration save error:', error);
@@ -5598,62 +5868,62 @@ window.saveFees = async function() {
   try {
     const className = document.getElementById('fees-class').value;
     if (!className) return alert('Select a class');
-    
+
     // Get total fees for class and ensure it's a number
     const feesConfig = await getIndexedDB('feesConfig', className);
     const totalFees = feesConfig && !isNaN(feesConfig.totalAmount) ? Number(feesConfig.totalAmount) : 0;
-    
+
     if (totalFees <= 0) {
       alert('Total fees for this class is not set or invalid');
       hideLoading();
       return;
     }
-    
+
     const inputs = document.querySelectorAll('#fees-table input[type="number"]');
     let hasInput = false;
     const date = new Date().toISOString();
     const tolerance = 0.001; // same as updateFeeStatus
-    
+
     for (const inp of inputs) {
       const amount = parseFloat(inp.value);
       const studentId = sanitizeKey(inp.dataset.id);
-      
+
       if (!isNaN(amount) && amount > 0) {
         hasInput = true;
-        
+
         let fee = await getIndexedDB('fees', studentId);
         if (!fee) fee = { id: studentId, payments: [], classId: className, updatedAt: date };
-        
+
         // Strict numeric comparison with tolerance
         let status = '';
         if (Math.abs(amount - totalFees) <= tolerance) status = 'fullypaid';
         else if (amount > totalFees + tolerance) status = 'overpaid';
         else if (amount < totalFees - tolerance) status = 'outstanding';
-        
+
         fee.payments.push({ amount, date, status });
         fee.updatedAt = date;
-        
+
         await setIndexedDB('fees', studentId, fee);
-        
+
         // Guarded sync
         if (typeof guardedAddToSyncQueue === 'function') {
           await guardedAddToSyncQueue(`fees/${studentId}`, 'set', fee);
         }
       }
     }
-    
+
     if (!hasInput) {
       alert('Enter at least one positive amount');
       hideLoading();
       return;
     }
-    
+
     if (typeof guardedTriggerSync === 'function') guardedTriggerSync();
-    
+
     alert('Fees saved successfully');
     clearFeesInputs();
     loadFeesStudents();
-    
+
   } catch (e) {
     console.error('saveFees failed', e);
     alert('Error saving fees. Please try again.');
@@ -5670,32 +5940,32 @@ window.viewFeesHistory = async function() {
   try {
     const className = document.getElementById('fees-history-class').value;
     if (!className) return alert('Select a class');
-    
+
     const studentId = document.getElementById('fees-search-student-id').value.trim();
     const historyDiv = document.getElementById('fees-history');
-    
+
     let fees = await getIndexedDB('fees');
     if (!Array.isArray(fees)) fees = [];
-    
+
     const feesConfig = await getIndexedDB('feesConfig', className);
     const totalFullAmount = feesConfig ? feesConfig.totalAmount : 0;
-    
+
     let students = await getIndexedDB('students');
     if (!Array.isArray(students)) students = [];
-    
+
     const studentMap = new Map(students.map(stu => [stu.id, stu]));
     const filteredFees = fees.filter(
       f => studentMap.get(f.id)?.classId === className && (!studentId || f.id === studentId)
     );
-    
+
     historyDiv.innerHTML = '';
-    
+
     if (!filteredFees.length) {
       historyDiv.innerHTML = '<p>No fee records found</p>';
       historyDiv.style.display = 'block';
       return;
     }
-    
+
     const table = document.createElement('table');
     table.innerHTML = `
       <thead>
@@ -5710,23 +5980,23 @@ window.viewFeesHistory = async function() {
       </thead>
       <tbody></tbody>
     `;
-    
+
     const tbody = table.querySelector('tbody');
     let found = false;
-    
+
     filteredFees.forEach(f => {
       const student = studentMap.get(f.id);
       if (!student) return;
-      
+
       let runningTotal = 0;
-      
+
       f.payments.forEach((payment, index) => {
         runningTotal += Number(payment.amount) || 0;
         found = true;
-        
+
         // ✅ ENHANCED STATUS LOGIC (ADDED ONLY)
         let statusHTML = '<span class="unpaid">Not Paid ❌</span>';
-        
+
         if (totalFullAmount > 0) {
           if (runningTotal === totalFullAmount) {
             statusHTML = '<span class="paid">Fully Paid ✅</span>';
@@ -5736,7 +6006,7 @@ window.viewFeesHistory = async function() {
             statusHTML = '<span class="outstanding">Outstanding Balance</span>';
           }
         }
-        
+
         const tr = document.createElement('tr');
         tr.innerHTML = `
           <td>${escapeHTML(payment.date)}</td>
@@ -5758,14 +6028,14 @@ window.viewFeesHistory = async function() {
         tbody.appendChild(tr);
       });
     });
-    
+
     if (!found) {
       tbody.innerHTML = '<tr><td colspan="6">No fee records found</td></tr>';
     }
-    
+
     historyDiv.appendChild(table);
     historyDiv.style.display = 'block';
-    
+
   } catch (e) {
     console.error('viewFeesHistory failed', e);
   }
@@ -5782,35 +6052,35 @@ window.editFeeRecord = async function(studentId, index, currentAmount, currentDa
     if (newAmountStr === null) return;
     const newAmount = parseFloat(newAmountStr);
     if (isNaN(newAmount) || newAmount <= 0) return alert('Positive amount required');
-    
+
     const fee = await getIndexedDB('fees', studentId);
     if (!fee || !fee.payments[index]) return alert('Record not found');
-    
+
     // Update the payment
     fee.payments[index].amount = newAmount;
     fee.updatedAt = new Date().toISOString();
-    
+
     // ✅ Recalculate the status based on total of all payments
     const students = await getIndexedDB('students');
     const student = students.find(s => s.id === studentId);
     if (!student) throw new Error('Student not found');
-    
+
     const feesConfig = await getIndexedDB('feesConfig', student.classId);
     const totalFees = feesConfig && typeof feesConfig.totalAmount === 'number' ? feesConfig.totalAmount : 0;
-    
+
     const totalPaid = fee.payments.reduce((sum, p) => sum + (p.amount || 0), 0);
     const epsilon = 0.001; // floating point tolerance
-    
+
     if (totalPaid <= 0) fee.status = 'unpaid';
     else if (Math.abs(totalPaid - totalFees) < epsilon) fee.status = 'fullypaid';
     else if (totalPaid < totalFees) fee.status = 'outstanding';
     else fee.status = 'overpaid';
-    
+
     // Save & sync
     await setIndexedDB('fees', studentId, fee);
     await guardedAddToSyncQueue(`fees/${studentId}`, 'set', fee);
     guardedTriggerSync(); // Background
-    
+
     alert('Updated successfully');
     viewFeesHistory();
   } catch (e) {
@@ -5829,15 +6099,15 @@ window.deleteFeeRecord = async function(studentId, index) {
   showLoading('Deleting fee...');
   try {
     if (!confirm(`Delete this payment for ${studentId}?`)) return;
-    
+
     const fee = await getIndexedDB('fees', studentId);
     if (!fee || !fee.payments[index]) return alert('Record not found');
-    
+
     // Remove the specific payment
     const removedPayment = fee.payments.splice(index, 1)[0];
-    
+
     fee.updatedAt = new Date().toISOString();
-    
+
     if (fee.payments.length === 0) {
       // No payments left — delete the entire record
       await deleteIndexedDB('fees', studentId);
@@ -5848,13 +6118,13 @@ window.deleteFeeRecord = async function(studentId, index) {
       await setIndexedDB('fees', studentId, fee);
       await guardedAddToSyncQueue(`fees/${studentId}`, 'set', fee);
     }
-    
+
     // Trigger background sync once
     guardedTriggerSync();
-    
+
     alert('Payment deleted successfully');
     viewFeesHistory(); // Refresh the history table
-    
+
   } catch (e) {
     console.error('deleteFeeRecord failed', e);
     alert('Error deleting payment. Try again.');
@@ -5873,25 +6143,25 @@ window.deleteAllFees = async function() {
     const studentId = document.getElementById('fees-search-student-id')?.value.trim();
     const message = studentId ? `Delete all for ${studentId} in ${className}?` : `Delete all in ${className}?`;
     if (!confirm(message)) return;
-    
+
     let fees = await getIndexedDB('fees');
     if (!fees) fees = {};
     const feesArray = Array.isArray(fees) ? fees : Object.values(fees);
-    
+
     for (const fee of feesArray) {
       if (fee.classId === className && (!studentId || fee.id === studentId)) {
         await deleteIndexedDB('fees', fee.id);
         await guardedAddToSyncQueue(`fees/${fee.id}`, 'delete', null);
       }
     }
-    
+
     guardedTriggerSync(); // Background
     alert('Deleted');
-    
+
     const historyClassEl = document.getElementById('fees-history-class');
     if (historyClassEl && historyClassEl.value) viewFeesHistory();
     else loadFeesStudents();
-    
+
   } catch (e) {
     console.error('deleteAllFees failed', e);
   } finally {
@@ -5923,20 +6193,27 @@ window.saveProfile = async function() {
     const tsNumber = document.getElementById('ts-number').value.trim();
     const phone = document.getElementById('teacher-phone').value.trim();
     const photoInput = document.getElementById('teacher-photo');
-    
+
     if (!name || !schoolName || !tsNumber || !phone)
       return alert('Fill required fields');
-    
+
     if (!/\+260[0-9]{9}/.test(phone))
       return alert('+260 format required');
-    
+
     const uid = auth.currentUser.uid;
     const email = auth.currentUser.email;
-    
-    // ── School lookup / creation
-    const q = query(collection(fdb, 'schools'), where('name', '==', schoolName));
-    const querySnapshot = await getDocs(q);
-    
+
+
+
+// ── School lookup / creation
+const q = query(
+  collection(fdb, 'school'),
+  where('name', '==', schoolName)
+);
+
+const querySnapshot = await getDocs(q);
+
+
     let schoolId;
     if (querySnapshot.empty) {
       const schoolRef = await addDoc(collection(fdb, 'schools'), {
@@ -5947,10 +6224,10 @@ window.saveProfile = async function() {
     } else {
       schoolId = querySnapshot.docs[0].id;
     }
-    
+
     // ── OPTIONAL PHOTO UPLOAD (NON-BLOCKING)
     let profilePictureURL = '';
-    
+
     if (photoInput.files[0]) {
       try {
         if (photoInput.files[0].size <= 1.5 * 1024 * 1024) {
@@ -5958,12 +6235,12 @@ window.saveProfile = async function() {
             storage,
             `schools/${schoolId}/teachers/${uid}/profile.jpg`
           );
-          
+
           await withTimeout(
             uploadBytes(storageRef, photoInput.files[0]),
             5000 // ⏱️ 5 seconds max
           );
-          
+
           profilePictureURL = await getDownloadURL(storageRef);
         }
       } catch (e) {
@@ -5971,7 +6248,7 @@ window.saveProfile = async function() {
         profilePictureURL = ''; // silently ignore
       }
     }
-    
+
     // ── Save teacher metadata
     const now = new Date().toISOString();
     const teacherData = {
@@ -5985,18 +6262,18 @@ window.saveProfile = async function() {
       createdAt: now,
       updatedAt: now
     };
-    
+
     await setDoc(doc(fdb, 'schools', schoolId, 'teachers', uid), teacherData);
     await setDoc(doc(fdb, 'users', uid), { schoolId });
-    
+
     // ── Offline cache
     await setIndexedDB('userProfile', uid, { uid, schoolId, ...teacherData });
     await setIndexedDB('teachers', uid, teacherData);
-    
+
     closeProfileModal();
     showDashboard();
     syncData();
-    
+
   } catch (e) {
     console.error('saveProfile failed', e);
     alert('Failed to save profile.');
@@ -6007,69 +6284,138 @@ window.saveProfile = async function() {
 
 
 
-// ----------------- AUTH EVENT LISTENERS -----------------
-document.getElementById('login-btn').addEventListener('click', () => {
-  const email = document.getElementById('email').value.trim();
-  const password = document.getElementById('password').value;
-  const authMsg = document.getElementById('auth-msg');
-  if (!email || !password) return authMsg.textContent = 'Fill fields';
-  signInWithEmailAndPassword(auth, email, password)
-    .then(() => authMsg.textContent = 'Login successful!')
-    .catch(error => authMsg.textContent = `Error: ${error.message}`);
-});
 
-document.getElementById('register-btn').addEventListener('click', () => {
-  const email = document.getElementById('email').value.trim();
-  const password = document.getElementById('password').value;
-  const authMsg = document.getElementById('auth-msg');
-  if (!email || !password) return authMsg.textContent = 'Fill fields';
-  createUserWithEmailAndPassword(auth, email, password)
-    .then(() => authMsg.textContent = 'Registration successful!')
-    .catch(error => authMsg.textContent = `Error: ${error.message}`);
-});
 
-document.getElementById('reset-btn').addEventListener('click', () => {
-  const email = document.getElementById('email').value.trim();
-  const authMsg = document.getElementById('auth-msg');
-  if (!email) return authMsg.textContent = 'Enter email';
-  sendPasswordResetEmail(auth, email)
-    .then(() => authMsg.textContent = 'Reset email sent!')
-    .catch(error => authMsg.textContent = `Error: ${error.message}`);
-});
 
-document.getElementById('logout-btn').addEventListener('click', () => {
-  signOut(auth).then(() => {
+
+
+
+document.getElementById('logout-btn').addEventListener('click', async () => {
+  
+  try {
+    
+    // 🔥 1️⃣ Reset restore controller (if used)
+    if (typeof isRestoring !== 'undefined') {
+      isRestoring = false;
+      restoreRetryCount = 0;
+      restoreCollectionIndex = 0;
+    }
+    
+    // 🔥 2️⃣ Make sure DB is initialized
+    if (!db) {
+      await initIndexedDB();
+    }
+    
+    // 🔥 3️⃣ Clear ALL stores safely (DO NOT delete database)
+    const storeNames = Array.from(db.objectStoreNames);
+    
+    for (const storeName of storeNames) {
+      await new Promise((resolve, reject) => {
+        let transaction;
+        
+        try {
+          transaction = db.transaction([storeName], 'readwrite');
+        } catch (err) {
+          console.error(`Transaction failed for ${storeName}`, err);
+          return reject(err);
+        }
+        
+        const store = transaction.objectStore(storeName);
+        const request = store.clear();
+        
+        request.onsuccess = () => resolve();
+        request.onerror = () => {
+          console.error(`Failed to clear ${storeName}`, request.error);
+          reject(request.error);
+        };
+      });
+    }
+    
+    console.log("All IndexedDB stores cleared ✔");
+    
+    // 🔥 4️⃣ Sign out from Firebase
+    await signOut(auth);
+    
+    // 🔥 5️⃣ Reset UI state
     currentTeacher = null;
+    
     document.getElementById('auth-section').style.display = 'block';
     document.getElementById('dashboard').style.display = 'none';
-    hideAllSections();
+    
+    if (typeof hideAllSections === "function") {
+      hideAllSections();
+    }
+    
     document.getElementById('email').value = '';
     document.getElementById('password').value = '';
     document.getElementById('auth-msg').textContent = '';
-    if (clockInterval) clearInterval(clockInterval);
+    
+    if (typeof clockInterval !== "undefined" && clockInterval) {
+      clearInterval(clockInterval);
+    }
+    
     history.pushState({ view: 'auth' }, '', '#auth');
-  }).catch(error => document.getElementById('auth-msg').textContent = `Error: ${error.message}`);
+    
+  } catch (error) {
+    
+    console.error("Logout error FULL:", error);
+    console.error("Message:", error?.message);
+    console.error("Stack:", error?.stack);
+    
+    document.getElementById('auth-msg').textContent =
+      `Error: ${error?.message || "Logout failed"}`;
+  }
+  
 });
 
-onAuthStateChanged(auth, async user => {
-  if (user) {
-    currentTeacher = user.email;
-    const profile = await getIndexedDB('userProfile', user.uid);
+
+// ----------------- AUTH EVENT LISTENERS (Enhanced for TM 3.0) -----------------
+document.getElementById('login-btn').addEventListener('click', async () => {
+  const email = document.getElementById('email').value.trim();
+  const password = document.getElementById('password').value;
+  const authMsg = document.getElementById('auth-msg');
+  
+  if (!email || !password) {
+    authMsg.textContent = 'Fill fields';
+    return;
+  }
+  
+  try {
+    const userCredential = await signInWithEmailAndPassword(auth, email, password);
+    authMsg.textContent = 'Login successful!';
+    
+    // Initialize IndexedDB for this session
+    await initIndexedDB();
+    
+    // Load user profile
+    const profile = await getIndexedDB('userProfile', userCredential.user.uid);
     if (profile) {
       showDashboard();
       triggerSync();
-      const pending = await hasPendingSync();
-      if (pending) updateSyncStatus('Not Synced – pending', '#ff4e50');
+      
+      // Check if anything is pending in syncQueue
+      const queue = await getIndexedDB('syncQueue').catch(() => []);
+      if (Array.isArray(queue) && queue.length > 0) {
+        updateSyncStatus('Not Synced – pending', '#ff4e50');
+      }
     } else {
-      const userDoc = await getDoc(doc(fdb, 'users', user.uid));
+      // Load from Firebase if profile missing locally
+      const userDoc = await getDoc(doc(fdb, 'users', userCredential.user.uid));
       if (userDoc.exists()) {
         const schoolId = userDoc.data().schoolId;
-        const teacherDoc = await getDoc(doc(fdb, 'schools', schoolId, 'teachers', user.uid));
+        const teacherDoc = await getDoc(doc(fdb, 'schools', schoolId, 'teachers', userCredential.user.uid));
+        
         if (teacherDoc.exists()) {
           const teacherData = teacherDoc.data();
-          await setIndexedDB('userProfile', user.uid, { uid: user.uid, schoolId, ...teacherData });
+          await setIndexedDB('userProfile', userCredential.user.uid, {
+            uid: userCredential.user.uid,
+            schoolId,
+            ...teacherData
+          });
+          
           showDashboard();
-          syncData();
+          await downloadDataFromFirebase(schoolId); // Full restore
+          triggerSync();
         } else {
           showProfileModal();
         }
@@ -6077,14 +6423,108 @@ onAuthStateChanged(auth, async user => {
         showProfileModal();
       }
     }
-  } else {
+  } catch (error) {
+    authMsg.textContent = `Error: ${error.message}`;
+  }
+});
+
+
+
+// ===============================
+// REGISTER
+// ===============================
+document.getElementById('register-btn').addEventListener('click', async () => {
+  
+  const email = document.getElementById('email').value.trim();
+  const password = document.getElementById('password').value;
+  const authMsg = document.getElementById('auth-msg');
+  
+  if (!email || !password) {
+    authMsg.textContent = 'Fill fields';
+    return;
+  }
+  
+  try {
+    await createUserWithEmailAndPassword(auth, email, password);
+    authMsg.textContent = 'Registration successful!';
+  } catch (error) {
+    authMsg.textContent = `Error: ${error.message}`;
+  }
+});
+
+
+
+
+
+
+
+// ===============================
+// AUTH STATE OBSERVER (VERSION B SAFE)
+// ===============================
+onAuthStateChanged(auth, async (user) => {
+  
+  if (!user) {
+    
     currentTeacher = null;
+    
     document.getElementById('auth-section').style.display = 'block';
     document.getElementById('dashboard').style.display = 'none';
     hideAllSections();
+    
     if (clockInterval) clearInterval(clockInterval);
+    
     history.pushState({ view: 'auth' }, '', '#auth');
+    
+    return;
   }
+  
+  try {
+    
+    // Always fetch schoolId fresh from Firestore
+    const userDoc = await getDoc(doc(fdb, 'users', user.uid));
+    
+    if (!userDoc.exists()) {
+      showProfileModal();
+      return;
+    }
+    
+    const schoolId = userDoc.data().schoolId;
+    
+    const teacherDoc = await getDoc(
+      doc(fdb, 'schools', schoolId, 'teachers', user.uid)
+    );
+    
+    if (!teacherDoc.exists()) {
+      showProfileModal();
+      return;
+    }
+    
+    const teacherData = teacherDoc.data();
+    
+    // Save fresh profile locally
+    await setIndexedDB('userProfile', user.uid, {
+      uid: user.uid,
+      schoolId,
+      ...teacherData
+    });
+    
+    currentTeacher = user.email;
+    
+    // Show dashboard ONLY after profile validated
+    showDashboard();
+    
+    // Let Version B restore engine handle data restoration
+    if (typeof safeRestore_VB === 'function') {
+      await safeRestore_VB(schoolId);
+    }
+    
+  } catch (error) {
+    
+    console.error('Auth state error:', error);
+    document.getElementById('auth-msg').textContent =
+      `Error: ${error.message}`;
+  }
+  
 });
 
 
@@ -6175,21 +6615,21 @@ function showSwMessage(text, type = 'success') {
   msg.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
   msg.style.opacity = '0';
   msg.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
-  
+
   if (type === 'success') {
     msg.style.background = 'linear-gradient(90deg, #00cc88, #009966)';
   } else {
     msg.style.background = 'linear-gradient(90deg, #ff4e50, #ff6f61)';
   }
-  
+
   document.body.appendChild(msg);
-  
+
   // Animate in
   requestAnimationFrame(() => {
     msg.style.opacity = '1';
     msg.style.transform = 'translateY(0)';
   });
-  
+
   // Remove after 4 seconds
   setTimeout(() => {
     msg.style.opacity = '0';
@@ -6316,15 +6756,15 @@ function debounce(func, delay) {
   (function initGlobalPhotoZoomListener() {
     if (window.__PHOTO_ZOOM_MONITOR__) return;
     window.__PHOTO_ZOOM_MONITOR__ = true;
-    
+
     const modal = document.getElementById('photo-modal');
     const modalImg = document.getElementById('photo-modal-img');
     const closeBtn = document.getElementById('photo-modal-close');
-    
+
     if (!modal || !modalImg || !closeBtn) return;
-    
+
     let lastTap = 0;
-    
+
     // Zoom state
     let scale = 1;
     let startScale = 1;
@@ -6334,48 +6774,48 @@ function debounce(func, delay) {
     let startX = 0;
     let startY = 0;
     let isPanning = false;
-    
+
     function applyTransform() {
       modalImg.style.transform =
         `translate(${translateX}px, ${translateY}px) scale(${scale})`;
     }
-    
+
     function resetTransform() {
       scale = 1;
       translateX = 0;
       translateY = 0;
       applyTransform();
     }
-    
+
     function openZoom(img) {
       const src = img.dataset.full || img.dataset.src || img.src;
       if (!src) return;
-      
+
       resetTransform();
       modalImg.src = src;
-      
+
       modal.style.display = 'flex';
       modal.style.opacity = '0';
       document.body.style.overflow = 'hidden';
       document.body.style.touchAction = 'none'; // 🔒 freeze background
-      
+
       requestAnimationFrame(() => {
         modal.style.opacity = '1';
       });
     }
-    
+
     function closeZoom() {
       modal.style.opacity = '0';
       document.body.style.overflow = '';
       document.body.style.touchAction = '';
-      
+
       setTimeout(() => {
         modal.style.display = 'none';
         modalImg.src = '';
         resetTransform();
       }, 300);
     }
-    
+
     /* -----------------------------
        DESKTOP → DOUBLE CLICK
        ----------------------------- */
@@ -6384,12 +6824,12 @@ function debounce(func, delay) {
       if (!img) return;
       if (img.closest('#class-management')) return;
       if (img.classList.contains('no-zoom')) return;
-      
+
       e.preventDefault();
       e.stopPropagation();
       openZoom(img);
     }, true);
-    
+
     /* -----------------------------
        MOBILE → DOUBLE TAP
        ----------------------------- */
@@ -6398,7 +6838,7 @@ function debounce(func, delay) {
       if (!img) return;
       if (img.closest('#class-management')) return;
       if (img.classList.contains('no-zoom')) return;
-      
+
       const now = Date.now();
       if (now - lastTap < 300) {
         e.preventDefault();
@@ -6406,7 +6846,7 @@ function debounce(func, delay) {
       }
       lastTap = now;
     }, true);
-    
+
     /* -----------------------------
        PINCH TO ZOOM
        ----------------------------- */
@@ -6423,10 +6863,10 @@ function debounce(func, delay) {
         startY = e.touches[0].clientY - translateY;
       }
     }, { passive: false });
-    
+
     modalImg.addEventListener('touchmove', e => {
       e.preventDefault();
-      
+
       if (e.touches.length === 2) {
         const newDistance = Math.hypot(
           e.touches[0].clientX - e.touches[1].clientX,
@@ -6440,31 +6880,31 @@ function debounce(func, delay) {
         applyTransform();
       }
     }, { passive: false });
-    
+
     modalImg.addEventListener('touchend', () => {
       isPanning = false;
     });
-    
+
     /* -----------------------------
        CLOSE HANDLERS
        ----------------------------- */
     closeBtn.onclick = closeZoom;
-    
+
     modal.addEventListener('click', e => {
       if (e.target === modal) closeZoom();
     });
-    
+
     document.addEventListener('keydown', e => {
       if (e.key === 'Escape' && modal.style.display !== 'none') {
         closeZoom();
       }
     });
-    
-  })();
-  
-  
 
-  
+  })();
+
+
+
+
   // ──────────────────────────────────────────────────────────────
 //  TeachMate Master Sync Listener
 //  Downloads all data safely and warns about any missing/failed features
@@ -6473,31 +6913,31 @@ async function masterSyncTeacherData(schoolId) {
   const collectionsWithPhotos = ['students'];
   const featureWarnings = [];
   const downloadedFeatures = [];
-  
+
   for (const coll of ALL_COLLECTIONS) {
     try {
       const collRef = collection(fdb, 'schools', schoolId, coll);
       const snapshot = await getDocs(collRef);
-      
+
       const serverIds = [];
-      
+
       for (const doc of snapshot.docs) {
         const docId = doc.id;
         serverIds.push(docId);
-        
+
         const serverData = doc.data() || {};
         const localData = await getIndexedDB(coll, docId);
-        
+
         // Preserve local photos
         let dataToSave = { ...serverData, id: docId };
         if (collectionsWithPhotos.includes(coll) && localData?.photo) {
           dataToSave.photo = localData.photo;
         }
-        
+
         await setIndexedDB(coll, docId, dataToSave);
         await addToSyncQueue(`${coll}/${docId}`, 'set', dataToSave);
       }
-      
+
       // Only delete truly corrupt local entries: students with no studentId
       const localAll = await getIndexedDB(coll);
       if (Array.isArray(localAll)) {
@@ -6512,14 +6952,14 @@ async function masterSyncTeacherData(schoolId) {
           }
         }
       }
-      
+
       downloadedFeatures.push(coll);
     } catch (err) {
       console.warn(`⚠️ Failed to sync ${coll}: ${err.message}`);
       featureWarnings.push(coll);
     }
   }
-  
+
   // Show feature-specific messages
   if (featureWarnings.length > 0) {
     showToast(
@@ -6532,7 +6972,7 @@ async function masterSyncTeacherData(schoolId) {
       'success'
     );
   }
-  
+
   // Refresh UI for all features
   try {
     if (typeof refreshAttendance === 'function') await refreshAttendance();
@@ -6550,7 +6990,7 @@ async function masterSyncTeacherData(schoolId) {
 // ──────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
   if (!window.currentTeacherSchoolId) return;
-  
+
   try {
     showLoading('Syncing your data with TeachMate...');
     await masterSyncTeacherData(window.currentTeacherSchoolId);
@@ -6567,22 +7007,22 @@ document.addEventListener('DOMContentLoaded', async () => {
 // ──────────────────────────────────────────────────────────────
 async function checkFeatureSync(schoolId) {
   const featureIssues = {};
-  
+
   for (const coll of ALL_COLLECTIONS) {
     try {
       const collRef = collection(fdb, 'schools', schoolId, coll);
       const snapshot = await getDocs(collRef);
-      
+
       const serverIds = snapshot.docs.map(d => d.id);
       const localAll = await getIndexedDB(coll);
       const localIds = Array.isArray(localAll) ? localAll.map(l => l?.id).filter(Boolean) : [];
-      
+
       // Find missing locally
       const missingLocally = serverIds.filter(id => !localIds.includes(id));
-      
+
       // Find extra/missing on server for records with IDs
       const missingOnServer = localIds.filter(id => !serverIds.includes(id));
-      
+
       if (missingLocally.length || missingOnServer.length) {
         featureIssues[coll] = { missingLocally, missingOnServer };
       }
@@ -6591,7 +7031,7 @@ async function checkFeatureSync(schoolId) {
       featureIssues[coll] = { error: err.message };
     }
   }
-  
+
   // Show results
   if (Object.keys(featureIssues).length > 0) {
     console.group('%c⚠️ TeachMate Sync Issues', 'color: orange; font-weight: bold;');
@@ -6610,7 +7050,7 @@ async function checkFeatureSync(schoolId) {
       console.groupEnd();
     }
     console.groupEnd();
-    
+
     showToast(
       '⚠️ Some features have missing records. Check console for details.',
       'warning'
@@ -6631,8 +7071,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.error('Feature check failed:', err.message);
   }
 });
-  
-  
+
+
 </script>
 
 
