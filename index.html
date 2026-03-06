@@ -11,7 +11,10 @@
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="manifest" href="manifest.json">
   <!-- Include jsPDF library -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js">
+    
+     src="https://d3js.org/d3.v7.min.js">
+  </script>
   <style>
     :root {
       --gradient: linear-gradient(135deg, #ff4e50 0%, #f9d423 100%);
@@ -1072,7 +1075,9 @@ th, td { padding: 10px; text-align: left; }
 }
 
 
-
+#exportResultsPdfBtn {
+  display: none !important;
+}
 
 
 
@@ -1610,7 +1615,9 @@ th, td { padding: 10px; text-align: left; }
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-app.js";
     import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-auth.js";
-    import { getFirestore, doc, setDoc, getDoc, getDocs, collection, addDoc, updateDoc, deleteDoc, query, where } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-firestore.js";
+    import { getFirestore, doc, setDoc, getDoc, getDocs, collection, addDoc, updateDoc, deleteDoc, query, where,
+serverTimestamp   // ✅ ADD THIS
+    } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-firestore.js";
     import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-storage.js";
 
     const firebaseConfig = {
@@ -6182,11 +6189,27 @@ window.hideFeesHistory = function() {
 
 
 
+// Assume these are imported at the top of your script (or via CDN):
+// If using modular imports:
+// import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
+// import { getFirestore, collection, query, where, getDocs, addDoc, setDoc, doc, getDoc, serverTimestamp } from "firebase/firestore";
+// import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
+// const auth = getAuth();
+// const fdb = getFirestore();
+// const storage = getStorage();
 
+// If using Firebase CDN, ensure scripts are loaded in order: firebase-app, auth, firestore, storage.
 
 // ----------------- PROFILE -----------------
 window.saveProfile = async function() {
-  showLoading('Saving profile...');
+  // Defensive: Check if auth is ready
+  if (!auth || !auth.currentUser) {
+    alert('You must be logged in to save profile.');
+    return;
+  }
+
+  showLoading('Saving profile...');  // Assume defined
+
   try {
     const name = document.getElementById('teacher-name').value.trim();
     const schoolName = document.getElementById('school-name').value.trim();
@@ -6194,63 +6217,138 @@ window.saveProfile = async function() {
     const phone = document.getElementById('teacher-phone').value.trim();
     const photoInput = document.getElementById('teacher-photo');
 
-    if (!name || !schoolName || !tsNumber || !phone)
-      return alert('Fill required fields');
+    if (!name || !schoolName || !tsNumber || !phone) {
+      throw new Error('Please fill all required fields.');  // Use throw for consistent error handling
+    }
 
-    if (!/\+260[0-9]{9}/.test(phone))
-      return alert('+260 format required');
+    if (!/^\+260\d{9}$/.test(phone)) {
+      throw new Error('Phone must be in +260xxxxxxxxx format (9 digits after +260).');
+    }
 
     const uid = auth.currentUser.uid;
     const email = auth.currentUser.email;
 
-
-
-// ── School lookup / creation
-const q = query(
-  collection(fdb, 'school'),
-  where('name', '==', schoolName)
-);
-
-const querySnapshot = await getDocs(q);
-
+    // ── School lookup / creation
+    const schoolQuery = query(
+      collection(fdb, 'schools'),
+      where('name', '==', schoolName)
+    );
+    const querySnapshot = await getDocs(schoolQuery);
 
     let schoolId;
     if (querySnapshot.empty) {
       const schoolRef = await addDoc(collection(fdb, 'schools'), {
         name: schoolName,
-        createdAt: new Date().toISOString()
+        createdAt: serverTimestamp()
       });
       schoolId = schoolRef.id;
     } else {
       schoolId = querySnapshot.docs[0].id;
     }
 
-    // ── OPTIONAL PHOTO UPLOAD (NON-BLOCKING)
-    let profilePictureURL = '';
 
-    if (photoInput.files[0]) {
-      try {
-        if (photoInput.files[0].size <= 1.5 * 1024 * 1024) {
-          const storageRef = ref(
-            storage,
-            `schools/${schoolId}/teachers/${uid}/profile.jpg`
-          );
+// ── Default profile image
+let profilePictureURL = 'https://via.placeholder.com/150?text=Avatar';
 
-          await withTimeout(
-            uploadBytes(storageRef, photoInput.files[0]),
-            5000 // ⏱️ 5 seconds max
-          );
+// ── Function to compress image
+async function compressImage(file) {
+  return new Promise((resolve) => {
+    
+    const img = new Image();
+    const reader = new FileReader();
+    
+    reader.onload = function(e) {
+      img.src = e.target.result;
+    };
+    
+    img.onload = function() {
+      
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      const MAX_WIDTH = 600;
+      
+      const scaleSize = MAX_WIDTH / img.width;
+      
+      canvas.width = MAX_WIDTH;
+      canvas.height = img.height * scaleSize;
+      
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      
+      canvas.toBlob(
+        blob => resolve(blob),
+        'image/jpeg',
+        0.7
+      );
+      
+    };
+    
+    reader.readAsDataURL(file);
+    
+  });
+}
 
-          profilePictureURL = await getDownloadURL(storageRef);
-        }
-      } catch (e) {
-        console.warn('Photo upload skipped:', e.message);
-        profilePictureURL = ''; // silently ignore
-      }
+
+// ── Photo upload logic
+if (photoInput.files && photoInput.files[0]) {
+  
+  try {
+    
+    const file = photoInput.files[0];
+    
+    if (!file.type.startsWith('image/')) {
+      throw new Error('Please upload an image file.');
     }
+    
+    // Compress image
+    const compressedImage = await compressImage(file);
+    
+    const storageRef = ref(storage, `teachers/${uid}/profile.jpg`);
+    
+    let uploadSuccess = false;
+    let attempts = 0;
+    
+    while (!uploadSuccess && attempts < 4) {
+      
+      try {
+        
+        await uploadBytes(storageRef, compressedImage);
+        
+        profilePictureURL = await getDownloadURL(storageRef);
+        
+        uploadSuccess = true;
+        
+      } catch (uploadError) {
+        
+        attempts++;
+        console.warn("Upload attempt failed:", attempts);
+        
+      }
+      
+    }
+    
+    if (!uploadSuccess) {
+      console.warn("Photo upload failed after retries. Skipping photo upload.");
+    }
+    
+  } catch (err) {
+    
+    console.warn("Photo process failed:", err.message);
+    
+  }
+  
+}
+
+// Continue saving teacher metadata
+await setDoc(doc(fdb, "teachers", uid), {
+  name: teacherName,
+  subject: teacherSubject,
+  schoolId: schoolId,
+  photoURL: profilePictureURL
+});
+
 
     // ── Save teacher metadata
-    const now = new Date().toISOString();
     const teacherData = {
       id: uid,
       name,
@@ -6259,280 +6357,207 @@ const querySnapshot = await getDocs(q);
       email,
       profilePictureURL,
       role: 'teacher',
-      createdAt: now,
-      updatedAt: now
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
     };
 
-    await setDoc(doc(fdb, 'schools', schoolId, 'teachers', uid), teacherData);
-    await setDoc(doc(fdb, 'users', uid), { schoolId });
+    // Save to school's teachers (merge)
+    await setDoc(doc(fdb, 'schools', schoolId, 'teachers', uid), teacherData, { merge: true });
+
+    // Save role to global users (merge)
+    await setDoc(doc(fdb, 'users', uid), {
+      schoolId,
+      role: 'teacher'
+    }, { merge: true });
 
     // ── Offline cache
     await setIndexedDB('userProfile', uid, { uid, schoolId, ...teacherData });
     await setIndexedDB('teachers', uid, teacherData);
 
-    closeProfileModal();
-    showDashboard();
-    syncData();
+    closeProfileModal();  // Assume defined
+    showDashboard();      // Assume defined
+    triggerSync();           // Assume defined (renamed from triggerSync for consistency)
 
   } catch (e) {
-    console.error('saveProfile failed', e);
-    alert('Failed to save profile.');
+    console.error('saveProfile failed:', e, e.stack);  // Enhanced logging
+    alert(`Failed to save profile: ${e.message}`);
   } finally {
-    hideLoading();
+    hideLoading();  // Assume defined
   }
 };
 
-
-
-
-
-
-
-
-
+// ----------------- LOGOUT -----------------
 document.getElementById('logout-btn').addEventListener('click', async () => {
-  
   try {
-    
-    // 🔥 1️⃣ Reset restore controller (if used)
+    // 1. Reset restore state (if exists)
     if (typeof isRestoring !== 'undefined') {
       isRestoring = false;
       restoreRetryCount = 0;
       restoreCollectionIndex = 0;
     }
-    
-    // 🔥 2️⃣ Make sure DB is initialized
+
+    // 2. Ensure DB is initialized
     if (!db) {
-      await initIndexedDB();
+      await initIndexedDB();  // Assume defined
     }
-    
-    // 🔥 3️⃣ Clear ALL stores safely (DO NOT delete database)
+
+    // 3. Clear all stores
     const storeNames = Array.from(db.objectStoreNames);
-    
     for (const storeName of storeNames) {
       await new Promise((resolve, reject) => {
-        let transaction;
-        
-        try {
-          transaction = db.transaction([storeName], 'readwrite');
-        } catch (err) {
-          console.error(`Transaction failed for ${storeName}`, err);
-          return reject(err);
-        }
-        
+        const transaction = db.transaction([storeName], 'readwrite');
         const store = transaction.objectStore(storeName);
         const request = store.clear();
-        
-        request.onsuccess = () => resolve();
-        request.onerror = () => {
-          console.error(`Failed to clear ${storeName}`, request.error);
-          reject(request.error);
-        };
+        request.onsuccess = resolve;
+        request.onerror = reject;
       });
     }
-    
-    console.log("All IndexedDB stores cleared ✔");
-    
-    // 🔥 4️⃣ Sign out from Firebase
+    console.log('All IndexedDB stores cleared ✔');
+
+    // 4. Sign out from Firebase
     await signOut(auth);
-    
-    // 🔥 5️⃣ Reset UI state
+
+    // 5. Reset UI
     currentTeacher = null;
-    
     document.getElementById('auth-section').style.display = 'block';
     document.getElementById('dashboard').style.display = 'none';
-    
-    if (typeof hideAllSections === "function") {
+    if (typeof hideAllSections === 'function') {
       hideAllSections();
     }
-    
     document.getElementById('email').value = '';
     document.getElementById('password').value = '';
     document.getElementById('auth-msg').textContent = '';
-    
-    if (typeof clockInterval !== "undefined" && clockInterval) {
-      clearInterval(clockInterval);
-    }
-    
+    if (clockInterval) clearInterval(clockInterval);
     history.pushState({ view: 'auth' }, '', '#auth');
-    
+
   } catch (error) {
-    
-    console.error("Logout error FULL:", error);
-    console.error("Message:", error?.message);
-    console.error("Stack:", error?.stack);
-    
-    document.getElementById('auth-msg').textContent =
-      `Error: ${error?.message || "Logout failed"}`;
+    console.error('Logout error:', error, error.stack);
+    document.getElementById('auth-msg').textContent = `Error: ${error.message || 'Logout failed'}`;
   }
-  
 });
 
-
-// ----------------- AUTH EVENT LISTENERS (Enhanced for TM 3.0) -----------------
+// ----------------- LOGIN -----------------
 document.getElementById('login-btn').addEventListener('click', async () => {
   const email = document.getElementById('email').value.trim();
   const password = document.getElementById('password').value;
   const authMsg = document.getElementById('auth-msg');
-  
+
   if (!email || !password) {
-    authMsg.textContent = 'Fill fields';
+    authMsg.textContent = 'Please fill all fields.';
     return;
   }
-  
+
   try {
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
     authMsg.textContent = 'Login successful!';
-    
-    // Initialize IndexedDB for this session
+
+    // Init IndexedDB
     await initIndexedDB();
-    
-    // Load user profile
-    const profile = await getIndexedDB('userProfile', userCredential.user.uid);
-    if (profile) {
-      showDashboard();
-      triggerSync();
-      
-      // Check if anything is pending in syncQueue
-      const queue = await getIndexedDB('syncQueue').catch(() => []);
-      if (Array.isArray(queue) && queue.length > 0) {
-        updateSyncStatus('Not Synced – pending', '#ff4e50');
-      }
-    } else {
-      // Load from Firebase if profile missing locally
-      const userDoc = await getDoc(doc(fdb, 'users', userCredential.user.uid));
-      if (userDoc.exists()) {
-        const schoolId = userDoc.data().schoolId;
-        const teacherDoc = await getDoc(doc(fdb, 'schools', schoolId, 'teachers', userCredential.user.uid));
-        
-        if (teacherDoc.exists()) {
-          const teacherData = teacherDoc.data();
-          await setIndexedDB('userProfile', userCredential.user.uid, {
-            uid: userCredential.user.uid,
-            schoolId,
-            ...teacherData
-          });
-          
-          showDashboard();
-          await downloadDataFromFirebase(schoolId); // Full restore
-          triggerSync();
-        } else {
-          showProfileModal();
-        }
-      } else {
-        showProfileModal();
-      }
-    }
+
+    // The auth state listener will handle profile check and UI routing
+    // No need to duplicate logic here; just trigger sync if needed
+    syncData();
+
   } catch (error) {
+    console.error('Login error:', error);
     authMsg.textContent = `Error: ${error.message}`;
   }
 });
 
-
-
-// ===============================
-// REGISTER
-// ===============================
+// ----------------- REGISTER -----------------
 document.getElementById('register-btn').addEventListener('click', async () => {
-  
   const email = document.getElementById('email').value.trim();
   const password = document.getElementById('password').value;
   const authMsg = document.getElementById('auth-msg');
-  
+
   if (!email || !password) {
-    authMsg.textContent = 'Fill fields';
+    authMsg.textContent = 'Please fill all fields.';
     return;
   }
-  
+
   try {
     await createUserWithEmailAndPassword(auth, email, password);
-    authMsg.textContent = 'Registration successful!';
+    authMsg.textContent = 'Registration successful! Setting up profile...';
+
+    // Auth state listener will detect new user and show profile modal
+
   } catch (error) {
+    console.error('Register error:', error);
     authMsg.textContent = `Error: ${error.message}`;
   }
 });
 
-
-
-
-
-
-
-// ===============================
-// AUTH STATE OBSERVER (VERSION B SAFE)
-// ===============================
+// ----------------- AUTH STATE OBSERVER -----------------
 onAuthStateChanged(auth, async (user) => {
-  
+  const authMsg = document.getElementById('auth-msg');
+
   if (!user) {
-    
     currentTeacher = null;
-    
     document.getElementById('auth-section').style.display = 'block';
     document.getElementById('dashboard').style.display = 'none';
-    hideAllSections();
-    
+    if (typeof hideAllSections === 'function') {
+      hideAllSections();
+    }
     if (clockInterval) clearInterval(clockInterval);
-    
     history.pushState({ view: 'auth' }, '', '#auth');
-    
     return;
   }
-  
+
   try {
-    
-    // Always fetch schoolId fresh from Firestore
-    const userDoc = await getDoc(doc(fdb, 'users', user.uid));
-    
+    // Fetch user doc
+    const userDocRef = doc(fdb, 'users', user.uid);
+    const userDoc = await getDoc(userDocRef);
+
     if (!userDoc.exists()) {
-      showProfileModal();
+      showProfileModal();  // New user: Show profile setup
       return;
     }
-    
+
     const schoolId = userDoc.data().schoolId;
-    
-    const teacherDoc = await getDoc(
-      doc(fdb, 'schools', schoolId, 'teachers', user.uid)
-    );
-    
+    const teacherDocRef = doc(fdb, 'schools', schoolId, 'teachers', user.uid);
+    const teacherDoc = await getDoc(teacherDocRef);
+
     if (!teacherDoc.exists()) {
-      showProfileModal();
+      showProfileModal();  // Incomplete profile: Show setup
       return;
     }
-    
+
     const teacherData = teacherDoc.data();
-    
-    // Save fresh profile locally
+
+    // Cache profile locally
     await setIndexedDB('userProfile', user.uid, {
       uid: user.uid,
       schoolId,
       ...teacherData
     });
-    
+
     currentTeacher = user.email;
-    
-    // Show dashboard ONLY after profile validated
+
+    // Show dashboard
     showDashboard();
-    
-    // Let Version B restore engine handle data restoration
+
+    // Restore data if needed (assume safeRestore_VB is your restore function)
     if (typeof safeRestore_VB === 'function') {
       await safeRestore_VB(schoolId);
     }
-    
+
+    // Check sync queue and update status
+    const queue = await getIndexedDB('syncQueue') || [];
+    if (queue.length > 0) {
+      updateSyncStatus('Not Synced – pending', '#ff4e50');  // Assume defined
+    }
+
+    syncData();
+
   } catch (error) {
-    
-    console.error('Auth state error:', error);
-    document.getElementById('auth-msg').textContent =
-      `Error: ${error.message}`;
+    console.error('Auth state error:', error, error.stack);
+    authMsg.textContent = `Error: ${error.message}`;
   }
-  
 });
 
-
-
-
-// ----------------- EVENT LISTENERS -----------------
+// ----------------- OTHER EVENT LISTENERS -----------------
 window.addEventListener('online', () => {
-  updateSyncStatus('Syncing…', '#f9d423');
+  updateSyncStatus('Syncing…', '#f9d423');  // Assume defined
   syncData();
 });
 
@@ -6540,41 +6565,51 @@ window.addEventListener('offline', () => {
   updateSyncStatus('Offline — sync when online', '#ff6f61');
 });
 
-window.addEventListener('popstate', event => {
+window.addEventListener('popstate', (event) => {
   const state = event.state || {};
   const view = state.view || 'auth';
   if (view === 'auth') {
     document.getElementById('auth-section').style.display = 'block';
     document.getElementById('dashboard').style.display = 'none';
-    hideAllSections();
+    if (typeof hideAllSections === 'function') {
+      hideAllSections();
+    }
   } else {
-    showSection(view);
+    if (typeof showSection === 'function') {
+      showSection(view);
+    }
   }
 });
 
-
 document.addEventListener('DOMContentLoaded', async () => {
   try {
-    await initIndexedDB();
-    loadClasses();
+    await initIndexedDB();  // Assume defined
+    if (typeof loadClasses === 'function') {
+      loadClasses();
+    }
     history.replaceState({ view: 'auth' }, '', '#auth');
   } catch (e) {
     console.error('Failed to initialize IndexedDB:', e);
     alert('Database initialization failed. Check console for details.');
   }
+
+  // Splash screen (optional UX)
   const splashScreen = document.getElementById('splash-screen');
-  const progressFill = document.getElementById('progress-fill');
-  let progress = 0;
-  const interval = setInterval(() => {
-    progress += 10;
-    progressFill.style.width = `${progress}%`;
-    if (progress >= 100) {
-      clearInterval(interval);
-      splashScreen.style.opacity = '0';
-      setTimeout(() => splashScreen.style.display = 'none', 1200);
-    }
-  }, 300);
+  if (splashScreen) {
+    const progressFill = document.getElementById('progress-fill');
+    let progress = 0;
+    const interval = setInterval(() => {
+      progress += 10;
+      progressFill.style.width = `${progress}%`;
+      if (progress >= 100) {
+        clearInterval(interval);
+        splashScreen.style.opacity = '0';
+        setTimeout(() => splashScreen.style.display = 'none', 1200);
+      }
+    }, 300);
+  }
 });
+
 
 
 
@@ -7060,17 +7095,8 @@ async function checkFeatureSync(schoolId) {
   }
 }
 
-// ──────────────────────────────────────────────────────────────
-//  Example usage: call this after masterSyncTeacherData finishes
-// ──────────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', async () => {
-  if (!window.currentTeacherSchoolId) return;
-  try {
-    await checkFeatureSync(window.currentTeacherSchoolId);
-  } catch (err) {
-    console.error('Feature check failed:', err.message);
-  }
-});
+
+
 
 
 </script>
