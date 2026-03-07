@@ -14,10 +14,12 @@ const APP_SHELL_CACHE = 'teachmate-shell-v3';
 const RUNTIME_CACHE = 'teachmate-runtime-v3';
 
 const APP_SHELL = [
-  '/', // index.html
-  '/manifest.json',
-  '/offline.html'
+  './',              // Current directory
+  './index.html',    // Explicit index
+  './manifest.json',
+  './offline.html'
 ];
+
 
 /* =========================================================
    INSTALL
