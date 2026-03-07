@@ -6185,30 +6185,14 @@ window.hideFeesHistory = function() {
 
 
 
-
-
-
-
-// Assume these are imported at the top of your script (or via CDN):
-// If using modular imports:
-// import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
-// import { getFirestore, collection, query, where, getDocs, addDoc, setDoc, doc, getDoc, serverTimestamp } from "firebase/firestore";
-// import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
-// const auth = getAuth();
-// const fdb = getFirestore();
-// const storage = getStorage();
-
-// If using Firebase CDN, ensure scripts are loaded in order: firebase-app, auth, firestore, storage.
-
 // ----------------- PROFILE -----------------
 window.saveProfile = async function() {
-  // Defensive: Check if auth is ready
   if (!auth || !auth.currentUser) {
     alert('You must be logged in to save profile.');
     return;
   }
 
-  showLoading('Saving profile...');  // Assume defined
+  showLoading('Saving profile...'); 
 
   try {
     const name = document.getElementById('teacher-name').value.trim();
@@ -6218,7 +6202,7 @@ window.saveProfile = async function() {
     const photoInput = document.getElementById('teacher-photo');
 
     if (!name || !schoolName || !tsNumber || !phone) {
-      throw new Error('Please fill all required fields.');  // Use throw for consistent error handling
+      throw new Error('Please fill all required fields.'); 
     }
 
     if (!/^\+260\d{9}$/.test(phone)) {
@@ -6246,109 +6230,83 @@ window.saveProfile = async function() {
       schoolId = querySnapshot.docs[0].id;
     }
 
+    // ── Default profile image
+    let profilePictureURL = 'https://via.placeholder.com/150?text=Avatar';
 
-// ── Default profile image
-let profilePictureURL = 'https://via.placeholder.com/150?text=Avatar';
-
-// ── Function to compress image
-async function compressImage(file) {
-  return new Promise((resolve) => {
-    
-    const img = new Image();
-    const reader = new FileReader();
-    
-    reader.onload = function(e) {
-      img.src = e.target.result;
-    };
-    
-    img.onload = function() {
-      
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      
-      const MAX_WIDTH = 600;
-      
-      const scaleSize = MAX_WIDTH / img.width;
-      
-      canvas.width = MAX_WIDTH;
-      canvas.height = img.height * scaleSize;
-      
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      
-      canvas.toBlob(
-        blob => resolve(blob),
-        'image/jpeg',
-        0.7
-      );
-      
-    };
-    
-    reader.readAsDataURL(file);
-    
-  });
-}
-
-
-// ── Photo upload logic
-if (photoInput.files && photoInput.files[0]) {
-  
-  try {
-    
-    const file = photoInput.files[0];
-    
-    if (!file.type.startsWith('image/')) {
-      throw new Error('Please upload an image file.');
-    }
-    
-    // Compress image
-    const compressedImage = await compressImage(file);
-    
-    const storageRef = ref(storage, `teachers/${uid}/profile.jpg`);
-    
-    let uploadSuccess = false;
-    let attempts = 0;
-    
-    while (!uploadSuccess && attempts < 4) {
-      
-      try {
+    // ── Function to compress image (FIXED: Added reject handlers to prevent hanging)
+    async function compressImage(file) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        const reader = new FileReader();
         
-        await uploadBytes(storageRef, compressedImage);
+        reader.onload = (e) => { img.src = e.target.result; };
+        reader.onerror = (err) => { reject(new Error('Failed to read file')); };
+        
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          const MAX_WIDTH = 600;
+          const scaleSize = MAX_WIDTH / img.width;
+          
+          canvas.width = MAX_WIDTH;
+          canvas.height = img.height * scaleSize;
+          
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          
+          canvas.toBlob(
+            blob => {
+              if (blob) resolve(blob);
+              else reject(new Error('Canvas to Blob failed'));
+            },
+            'image/jpeg',
+            0.7
+          );
+        };
+        img.onerror = (err) => { reject(new Error('Failed to load image into memory')); };
+        
+        reader.readAsDataURL(file);
+      });
+    }
+
+    // ── Photo upload logic (FIXED: Non-blocking with strict timeout)
+    if (photoInput.files && photoInput.files[0]) {
+      try {
+        const file = photoInput.files[0];
+        
+        if (!file.type.startsWith('image/')) {
+          throw new Error('Please upload an image file.');
+        }
+        
+        console.log("Compressing image...");
+        const compressedImage = await compressImage(file);
+        
+        // Using the safe multi-tenant storage path
+        const storageRef = ref(storage, `schools/${schoolId}/teachers/${uid}/profile.jpg`);
+        
+        console.log("Uploading photo...");
+        
+        // Create a timeout promise (Abort upload if it takes longer than 8 seconds)
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Upload timeout')), 8000)
+        );
+
+        // Race the upload against the timeout
+        await Promise.race([
+          uploadBytes(storageRef, compressedImage),
+          timeoutPromise
+        ]);
         
         profilePictureURL = await getDownloadURL(storageRef);
+        console.log("Photo uploaded successfully!");
         
-        uploadSuccess = true;
-        
-      } catch (uploadError) {
-        
-        attempts++;
-        console.warn("Upload attempt failed:", attempts);
-        
+      } catch (err) {
+        // If anything fails (timeout, compression, network), we catch it here, 
+        // warn the console, and gracefully move on without breaking the save!
+        console.warn("Photo upload skipped/aborted:", err.message);
       }
-      
     }
-    
-    if (!uploadSuccess) {
-      console.warn("Photo upload failed after retries. Skipping photo upload.");
-    }
-    
-  } catch (err) {
-    
-    console.warn("Photo process failed:", err.message);
-    
-  }
-  
-}
 
-// Continue saving teacher metadata
-await setDoc(doc(fdb, "teachers", uid), {
-  name: teacherName,
-  subject: teacherSubject,
-  schoolId: schoolId,
-  photoURL: profilePictureURL
-});
-
-
-    // ── Save teacher metadata
+    // ── Save teacher metadata (FIXED: Removed the duplicate, broken setDoc block)
     const teacherData = {
       id: uid,
       name,
@@ -6374,17 +6332,21 @@ await setDoc(doc(fdb, "teachers", uid), {
     await setIndexedDB('userProfile', uid, { uid, schoolId, ...teacherData });
     await setIndexedDB('teachers', uid, teacherData);
 
-    closeProfileModal();  // Assume defined
-    showDashboard();      // Assume defined
-    triggerSync();           // Assume defined (renamed from triggerSync for consistency)
+    closeProfileModal();  
+    showDashboard();      
+    triggerSync();           
 
   } catch (e) {
-    console.error('saveProfile failed:', e, e.stack);  // Enhanced logging
+    console.error('saveProfile failed:', e);
     alert(`Failed to save profile: ${e.message}`);
   } finally {
-    hideLoading();  // Assume defined
+    hideLoading();  
   }
 };
+
+
+
+
 
 // ----------------- LOGOUT -----------------
 document.getElementById('logout-btn').addEventListener('click', async () => {
