@@ -6202,9 +6202,9 @@ window.saveProfile = async function() {
     const phone = document.getElementById('teacher-phone').value.trim();
     const photoInput = document.getElementById('teacher-photo');
 
-    if (!name || !schoolName || !tsNumber || !phone) {
-      throw new Error('Please fill all required fields.'); 
-    }
+    if (!name || !schoolName || !phone) {
+  throw new Error('Please fill all required fields.'); 
+}
 
     if (!/^\+260\d{9}$/.test(phone)) {
       throw new Error('Phone must be in +260xxxxxxxxx format (9 digits after +260).');
