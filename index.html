@@ -6185,7 +6185,6 @@ window.hideFeesHistory = function() {
 
 
 
-
 // ----------------- PROFILE -----------------
 window.saveProfile = async function() {
   if (!auth || !auth.currentUser) {
@@ -6281,7 +6280,6 @@ window.saveProfile = async function() {
         console.log("Compressing image...");
         const compressedImage = await compressImage(file);
 
-        // Using the safe multi-tenant storage path
         const storageRef = ref(storage, `schools/${schoolId}/teachers/${uid}/profile.jpg`);
 
         console.log("Uploading photo...");
@@ -6316,10 +6314,10 @@ window.saveProfile = async function() {
       updatedAt: serverTimestamp()
     };
 
-    // Save to school's teachers (merge)
+    // Save to school's teachers
     await setDoc(doc(fdb, 'schools', schoolId, 'teachers', uid), teacherData, { merge: true });
 
-    // Save role to global users (merge)
+    // Save role to global users
     await setDoc(doc(fdb, 'users', uid), {
       schoolId,
       role: 'teacher'
@@ -6329,13 +6327,11 @@ window.saveProfile = async function() {
     await setIndexedDB('userProfile', uid, { uid, schoolId, ...teacherData });
     await setIndexedDB('teachers', uid, teacherData);
 
-    // 🔥 FIX: Explicitly set the global state variable here so the app knows who is logged in!
     currentTeacher = email;
 
     closeProfileModal();  
     showDashboard();      
 
-    // 🔥 FIX: Trigger the restore function for the new user, just like in onAuthStateChanged
     if (typeof safeRestore_VB === 'function') {
       await safeRestore_VB(schoolId);
     }
@@ -6378,8 +6374,12 @@ document.getElementById('logout-btn').addEventListener('click', async () => {
     await signOut(auth);
 
     currentTeacher = null;
+    
+    // 🔥 FIX: Strictly reset UI to Auth view and force Profile Modal closed
     document.getElementById('auth-section').style.display = 'block';
     document.getElementById('dashboard').style.display = 'none';
+    if (typeof closeProfileModal === 'function') closeProfileModal();
+
     if (typeof hideAllSections === 'function') {
       hideAllSections();
     }
@@ -6412,6 +6412,7 @@ document.getElementById('login-btn').addEventListener('click', async () => {
 
     await initIndexedDB();
     syncData();
+    // No need to hide auth UI here, onAuthStateChanged handles it automatically!
 
   } catch (error) {
     console.error('Login error:', error);
@@ -6433,6 +6434,7 @@ document.getElementById('register-btn').addEventListener('click', async () => {
   try {
     await createUserWithEmailAndPassword(auth, email, password);
     authMsg.textContent = 'Registration successful! Setting up profile...';
+    // No need to manually call showProfileModal here, onAuthStateChanged catches the new user!
   } catch (error) {
     console.error('Register error:', error);
     authMsg.textContent = `Error: ${error.message}`;
@@ -6443,10 +6445,17 @@ document.getElementById('register-btn').addEventListener('click', async () => {
 onAuthStateChanged(auth, async (user) => {
   const authMsg = document.getElementById('auth-msg');
 
+  // 🔥 FIX: Immediately hide profile modal just in case it was showing on app load.
+  if (typeof closeProfileModal === 'function') {
+    closeProfileModal();
+  }
+
   if (!user) {
+    // 🔥 FIX: No user found. Strictly show auth page, hide dashboard.
     currentTeacher = null;
     document.getElementById('auth-section').style.display = 'block';
     document.getElementById('dashboard').style.display = 'none';
+    
     if (typeof hideAllSections === 'function') {
       hideAllSections();
     }
@@ -6454,6 +6463,10 @@ onAuthStateChanged(auth, async (user) => {
     history.pushState({ view: 'auth' }, '', '#auth');
     return;
   }
+
+  // 🔥 FIX: AUTO-LOGIN PATH! User exists in Firebase memory.
+  // First, hide the auth section so the user doesn't see a flicker while we check Firestore.
+  document.getElementById('auth-section').style.display = 'none';
 
   try {
     const userDocRef = doc(fdb, 'users', user.uid);
@@ -6473,6 +6486,7 @@ onAuthStateChanged(auth, async (user) => {
       return;
     }
 
+    // Profile exists! Auto-login is successful.
     const teacherData = teacherDoc.data();
 
     await setIndexedDB('userProfile', user.uid, {
@@ -6483,6 +6497,7 @@ onAuthStateChanged(auth, async (user) => {
 
     currentTeacher = user.email;
 
+    // Finally, show the dashboard.
     showDashboard();
 
     if (typeof safeRestore_VB === 'function') {
@@ -6491,14 +6506,19 @@ onAuthStateChanged(auth, async (user) => {
 
     const queue = await getIndexedDB('syncQueue') || [];
     if (queue.length > 0) {
-      updateSyncStatus('Not Synced – pending', '#ff4e50');  
+      if (typeof updateSyncStatus === 'function') {
+        updateSyncStatus('Not Synced – pending', '#ff4e50');  
+      }
     }
 
     syncData();
 
   } catch (error) {
     console.error('Auth state error:', error, error.stack);
-    authMsg.textContent = `Error: ${error.message}`;
+    if (authMsg) authMsg.textContent = `Error: ${error.message}`;
+    
+    // 🔥 FIX: If Firestore fails (e.g. offline issue), ensure they are sent back to Auth safely
+    document.getElementById('auth-section').style.display = 'block';
   }
 });
 
