@@ -1,7 +1,3 @@
-
-
-
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -12,7 +8,7 @@
   <link rel="manifest" href="manifest.json">
   <!-- Include jsPDF library -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js">
-    
+
      src="https://d3js.org/d3.v7.min.js">
   </script>
   <style>
@@ -1547,7 +1543,7 @@ th, td { padding: 10px; text-align: left; }
         <input type="text" id="school-name" placeholder="School Name">
         <label>School Name</label>
       </div>
-   
+
 <div class="input-wrapper">
   <input type="text" id="ts-number" placeholder="TS Number (Optional)">
   <label>TS Number (Optional)</label>
@@ -1717,7 +1713,7 @@ const ALL_COLLECTIONS = [
 function getIndexedDB(storeName, key) {
   return new Promise((resolve, reject) => {
     if (!db) return reject(new Error('IndexedDB not initialized yet'));
-    
+
     let transaction;
     try {
       transaction = db.transaction([storeName], 'readonly');
@@ -1727,7 +1723,7 @@ function getIndexedDB(storeName, key) {
     }
     const store = transaction.objectStore(storeName);
     const request = key !== undefined ? store.get(key) : store.getAll();
-    
+
     request.onsuccess = () => resolve(request.result ?? (key !== undefined ? null : []));
     request.onerror = () => {
       console.error(`IndexedDB GET error [${storeName}]`, request.error ? request.error.name : 'Unknown', request.error ? request.error.message : 'No message', request.error ? request.error.code : 'No code');
@@ -1738,10 +1734,10 @@ function getIndexedDB(storeName, key) {
 
 async function setIndexedDB(storeName, key, value) {
   if (!db) throw new Error('IndexedDB not initialized');
-  
+
   const transaction = db.transaction([storeName], 'readwrite');
   const store = transaction.objectStore(storeName);
-  
+
   // Only add the key if the store expects 'id' as keyPath
   let data;
   if (store.keyPath) {
@@ -1753,7 +1749,7 @@ async function setIndexedDB(storeName, key, value) {
   } else {
     data = { ...value };
   }
-  
+
   return new Promise((resolve, reject) => {
     const req = store.put(data);
     req.onsuccess = () => resolve();
@@ -1763,7 +1759,7 @@ async function setIndexedDB(storeName, key, value) {
 
 function deleteIndexedDB(storeName, key) {
   if (!db) throw new Error('IndexedDB not initialized');
-  
+
   let transaction;
   try {
     transaction = db.transaction([storeName], 'readwrite');
@@ -1788,82 +1784,82 @@ function deleteIndexedDB(storeName, key) {
 async function initIndexedDB() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open('TeachMateDB', 105); // Bumped version to 105 to ensure upgrade
-    
+
     request.onupgradeneeded = (event) => {
       db = event.target.result;
-      
+
       // Default stores using key 'id'
       const defaultStores = [
         'classes', 'students', 'attendance', 'results', 'fees',
         'feesConfig', 'messages', 'teachers', 'userProfile', 'syncQueue'
       ];
-      
+
       // Create normal stores
       defaultStores.forEach((storeName) => {
         if (!db.objectStoreNames.contains(storeName)) {
           db.createObjectStore(storeName, { keyPath: 'id' });
         }
       });
-      
+
       // Create NEW attendance stores
       if (!db.objectStoreNames.contains("attendanceHistory")) {
         db.createObjectStore("attendanceHistory", { keyPath: 'recordId' });
       }
-      
+
       if (!db.objectStoreNames.contains("attendanceSummary")) {
         db.createObjectStore("attendanceSummary", { keyPath: "studentId" });
       }
-      
+
       // Create NEW feesHistory store (assuming similar structure to attendanceHistory)
       if (!db.objectStoreNames.contains("feesHistory")) {
         db.createObjectStore("feesHistory", { keyPath: 'recordId' });
       }
-      
+
       console.log('Database upgraded/created with all stores.');
     };
-    
+
     request.onsuccess = (event) => {
       db = event.target.result;
       console.log('IndexedDB opened – version', db.version);
-      
+
       // REQUIRED STORES LIST MUST INCLUDE NEW STORES
       const requiredStores = [
         'classes', 'students', 'attendance', 'results', 'fees',
         'feesConfig', 'messages', 'teachers', 'userProfile', 'syncQueue',
         'attendanceHistory', 'attendanceSummary', 'feesHistory' // ← ADDED!
       ];
-      
+
       const missing = requiredStores.filter(name =>
         !db.objectStoreNames.contains(name)
       );
-      
+
       if (missing.length > 0) {
         console.warn('Missing stores:', missing, ' – Deleting DB and retrying...');
         db.close();
-        
+
         const deleteReq = indexedDB.deleteDatabase('TeachMateDB');
-        
+
         deleteReq.onsuccess = () => {
           console.log('Old DB deleted successfully.');
           initIndexedDB().then(resolve).catch(reject);
         };
-        
+
         deleteReq.onerror = (err) => {
           console.error('Failed to delete old DB', err);
           reject(err);
         };
-        
+
         deleteReq.onblocked = () => {
           alert('Database upgrade blocked – close other TeachMate tabs.');
           reject(new Error('DB blocked'));
         };
-        
+
       } else {
         console.log('All stores present – IndexedDB READY ✔️');
         resolve();
       }
     };
-    
+
     request.onerror = (event) => {
       console.error(
         'IndexedDB failed to open',
@@ -1872,7 +1868,7 @@ async function initIndexedDB() {
       );
       reject(event.target.error);
     };
-    
+
     request.onblocked = () => {
       alert('Close other tabs using TeachMate so the database can upgrade.');
       reject(new Error('DB upgrade blocked'));
@@ -1958,59 +1954,59 @@ cleanSyncQueue();
 async function syncData() {
   if (!navigator.onLine) return;
   updateSyncStatus('Syncing…', '#f9d423');
-  
+
   const user = auth.currentUser;
   if (!user) return updateSyncStatus('Not signed in', '#ffd166');
-  
+
   const profile = await getIndexedDB('userProfile', user.uid).catch(() => null);
   if (!profile?.schoolId) return updateSyncStatus('No school ID', '#ffd166');
-  
+
   const schoolId = sanitizeKey(String(profile.schoolId));
   const teacherId = user.uid;
-  
+
   if (!schoolId || !teacherId) {
     return updateSyncStatus('Invalid tenant context', '#ff4e50');
   }
-  
+
   let queue = await getIndexedDB('syncQueue').catch(() => []);
   if (!Array.isArray(queue)) queue = [];
-  
+
   queue.sort((a, b) => a.timestamp - b.timestamp);
-  
+
   for (let entry of queue) {
-    
+
     if (!entry || !entry.path || !entry.action || !entry.id) {
       console.warn('Skipping malformed syncQueue entry', entry);
       await deleteIndexedDB('syncQueue', entry?.id).catch(() => {});
       continue;
     }
-    
+
     // 🔒 Ownership check
     if (entry.teacherId && entry.teacherId !== teacherId) {
       console.warn('Skipping entry from different teacher:', entry.id);
       continue;
     }
-    
+
     const rawParts = entry.path
       .split('/')
       .map(p => p.trim())
       .filter(p => p !== '');
-    
+
     if (rawParts.length === 0) {
       console.warn('Skipping empty path entry', entry);
       await deleteIndexedDB('syncQueue', entry.id).catch(() => {});
       continue;
     }
-    
+
     const pathParts = rawParts.map(p => sanitizeKey(p));
-    
+
     // 🔒 Prevent structural injection
     if (pathParts.includes('schools') || pathParts.includes('teachers')) {
       console.warn('Illegal path injection attempt:', entry.path);
       await deleteIndexedDB('syncQueue', entry.id);
       continue;
     }
-    
+
     // 🔒 Enforced teacher-level structure
     const fullParts = [
       'schools',
@@ -2019,14 +2015,14 @@ async function syncData() {
       teacherId,
       ...pathParts
     ];
-    
+
     // Firestore document paths must be even length
     if (fullParts.length % 2 !== 0) {
       console.warn('Invalid path (odd segments) - removing:', entry.path);
       await deleteIndexedDB('syncQueue', entry.id);
       continue;
     }
-    
+
     let docRef;
     try {
       docRef = doc(fdb, ...fullParts);
@@ -2035,7 +2031,7 @@ async function syncData() {
       await deleteIndexedDB('syncQueue', entry.id);
       continue;
     }
-    
+
     // Ignore base64 student photo sync
     if (
       pathParts[0] === 'students' &&
@@ -2045,13 +2041,13 @@ async function syncData() {
     ) {
       entry.data.photo = '';
     }
-    
+
     try {
-      
+
       if (entry.action === 'set') {
-        
+
         let payloadData = entry.data || {};
-        
+
         if (typeof payloadData === 'object') {
           payloadData = {
             ...payloadData,
@@ -2061,33 +2057,33 @@ async function syncData() {
             syncedAt: Date.now()
           };
         }
-        
+
         const payload = removeUndefined(payloadData);
-        
+
         await setDoc(docRef, payload, { merge: true });
-        
+
       } else if (entry.action === 'delete') {
-        
+
         await deleteDoc(docRef);
-        
+
       } else {
         console.warn('Unknown action:', entry.action);
       }
-      
+
       await deleteIndexedDB('syncQueue', entry.id);
-      
+
     } catch (err) {
-      
+
       console.error('Sync failed for', entry, err.code, err.message);
-      
+
       if (err.code === 'invalid-argument') {
         await deleteIndexedDB('syncQueue', entry.id);
       }
-      
+
       updateSyncStatus('Sync Error — retrying later', '#ff4e50');
     }
   }
-  
+
   try {
     await safeRestore_VB(schoolId);
     updateSyncStatus('All Data Synced ✓', '#00cc88');
@@ -2132,40 +2128,40 @@ async function queueFeesSync(className, feeEntry) {
 // Automatic sync of all fees (Version B - Teacher Isolated)
 async function autoSyncAllFees() {
   if (!navigator.onLine) return;
-  
+
   const user = auth.currentUser;
   if (!user) return;
-  
+
   const profile = await getIndexedDB('userProfile', user.uid).catch(() => null);
   if (!profile?.schoolId) return;
-  
+
   const schoolId = sanitizeKey(String(profile.schoolId));
   const teacherId = user.uid;
-  
+
   updateSyncStatus('Syncing fees…', '#f9d423');
-  
+
   let classesData = await getIndexedDB('classes').catch(() => []);
   if (!Array.isArray(classesData) || classesData.length === 0) {
     updateSyncStatus('No classes found', '#ffd166');
     return;
   }
-  
+
   for (let cls of classesData) {
-    
+
     const className = sanitizeKey(cls.id);
-    
+
     const feesData = await getIndexedDB('fees', cls.id).catch(() => null);
     const classFees = feesData?.value || {};
-    
+
     for (let studentId in classFees) {
-      
+
       const sanitizedStudentId = sanitizeKey(studentId);
       const feeArray = Array.isArray(classFees[studentId]) ? classFees[studentId] : [];
-      
+
       for (let fee of feeArray) {
-        
+
         if (!fee.amount || fee.amount <= 0) continue;
-        
+
         const feeEntry = {
           studentId: sanitizedStudentId,
           amount: fee.amount,
@@ -2176,9 +2172,9 @@ async function autoSyncAllFees() {
           createdAt: Date.now(),
           syncedAt: serverTimestamp()
         };
-        
+
         try {
-          
+
           // 🔒 Teacher-isolated path (Version B)
           const docRef = doc(
             firestore,
@@ -2191,13 +2187,13 @@ async function autoSyncAllFees() {
             'fees',
             crypto.randomUUID() // unique fee doc
           );
-          
+
           await setDoc(docRef, removeUndefined(feeEntry));
-          
+
         } catch (err) {
-          
+
           console.warn('Failed to sync fee, queueing:', err);
-          
+
           await queueFeesSync(
             `classes/${className}/fees/${crypto.randomUUID()}`,
             feeEntry
@@ -2206,30 +2202,30 @@ async function autoSyncAllFees() {
       }
     }
   }
-  
+
   // 🔄 Retry queued fees (Version B compliant)
   let queue = await getIndexedDB('syncQueue').catch(() => []);
   if (!Array.isArray(queue)) queue = [];
-  
+
   queue = queue.filter(q => q.path && q.path.includes('/fees/'));
-  
+
   for (let entry of queue) {
-    
+
     try {
-      
+
       const rawParts = entry.path
         .split('/')
         .map(p => p.trim())
         .filter(p => p !== '');
-      
+
       const pathParts = rawParts.map(p => sanitizeKey(p));
-      
+
       // 🔒 Prevent structural injection
       if (pathParts.includes('schools') || pathParts.includes('teachers')) {
         await deleteIndexedDB('syncQueue', entry.id);
         continue;
       }
-      
+
       const fullParts = [
         'schools',
         schoolId,
@@ -2237,14 +2233,14 @@ async function autoSyncAllFees() {
         teacherId,
         ...pathParts
       ];
-      
+
       if (fullParts.length % 2 !== 0) {
         await deleteIndexedDB('syncQueue', entry.id);
         continue;
       }
-      
+
       const docRef = doc(firestore, ...fullParts);
-      
+
       await setDoc(docRef, removeUndefined({
         ...entry.data,
         schoolId,
@@ -2252,21 +2248,21 @@ async function autoSyncAllFees() {
         owner: teacherId,
         syncedAt: serverTimestamp()
       }));
-      
+
       await deleteIndexedDB('syncQueue', entry.id);
-      
+
     } catch (err) {
-      
+
       console.warn('Retry failed for queued fee', entry, err);
-      
+
       entry.retries = (entry.retries || 0) + 1;
-      
+
       if (entry.retries > 5) {
         await deleteIndexedDB('syncQueue', entry.id);
       }
     }
   }
-  
+
   updateSyncStatus('Fees synced ✓', '#00cc88');
 }
 
@@ -2292,54 +2288,54 @@ const MAX_RESTORE_RETRIES = 5;
 // Note: We removed the duplicate listener. This single listener now safely handles 
 // checking the Firestore user document BEFORE triggering the restore.
 auth.onAuthStateChanged(async (user) => {
-  
+
   if (!user) {
     isRestoring = false;
     restoreRetryCount = 0;
     restoreCollectionIndex = 0;
     return;
   }
-  
+
   if (isRestoring) {
     console.log('Restore already running — duplicate trigger blocked');
     return;
   }
-  
+
   try {
-    
+
     // 🔥 STEP 1: Wait for Firestore profile (Guarantees rules will pass)
     // IMPORTANT: Make sure you use your Firestore instance here (fdb or firestore), NOT db
     const profileRef = doc(fdb, "users", user.uid); 
     const snap = await getDoc(profileRef);
-    
+
     if (!snap.exists()) {
       console.warn("⏳ Firestore profile not yet created. Restore blocked until registration completes.");
       return;
     }
-    
+
     const serverProfile = snap.data();
-    
+
     if (!serverProfile.schoolId || !serverProfile.role) {
       console.error("🚨 Invalid Firestore profile (Missing schoolId or role). Restore blocked.");
       return;
     }
-    
+
     const schoolId = sanitizeKey(String(serverProfile.schoolId));
-    
+
     // 🔥 STEP 2: Sync IndexedDB to Firestore truth
     const localProfile = await getIndexedDB('userProfile', user.uid).catch(() => null);
-    
+
     if (!localProfile ||
       localProfile.schoolId !== serverProfile.schoolId ||
       localProfile.role !== serverProfile.role) {
-      
+
       console.log("🔄 Syncing IndexedDB profile with Firestore truth");
       await setIndexedDB('userProfile', user.uid, { ...localProfile, ...serverProfile });
     }
-    
+
     // 🔥 STEP 3: Now 100% safe to restore - rules will evaluate to true
     await safeRestore_VB(schoolId);
-    
+
   } catch (err) {
     console.error('Auto restore initialization failed:', err);
   }
@@ -2350,20 +2346,20 @@ auth.onAuthStateChanged(async (user) => {
 // ===============================
 async function safeRestore_VB(schoolId) {
   if (isRestoring) return;
-  
+
   isRestoring = true;
-  
+
   if (typeof updateSyncStatus === 'function') {
     updateSyncStatus('Restoring data…', '#f9d423');
   }
-  
+
   try {
     await downloadDataFromFirebase_VB(schoolId);  
-    
+
     restoreRetryCount = 0;  
     restoreCollectionIndex = 0;  
     isRestoring = false;  
-    
+
     if (typeof updateSyncStatus === 'function') {  
       updateSyncStatus('Data Restored ✓', '#00cc88');  
     }
@@ -2378,19 +2374,19 @@ async function safeRestore_VB(schoolId) {
 // CORE DOWNLOAD ENGINE (VERSION B)
 // ===============================
 async function downloadDataFromFirebase_VB(schoolId) {
-  
+
   const user = auth.currentUser;
   if (!user) throw new Error('User not authenticated');
-  
+
   const teacherId = user.uid;
-  
+
   // 🛡 STRICT VALIDATION: Prevent invalid-argument errors at the source
   if (!schoolId || !teacherId) {
     throw new Error(`Invalid tenant context. School: ${schoolId}, Teacher: ${teacherId}`);
   }
-  
+
   const collectionsWithPhotos = ['students'];
-  
+
   const expectedCollections = [
     'students',
     'classes',
@@ -2400,21 +2396,21 @@ async function downloadDataFromFirebase_VB(schoolId) {
     'feesHistory',
     'feesConfig'
   ];
-  
+
   if (typeof ALL_COLLECTIONS === 'undefined') {
     window.ALL_COLLECTIONS = [...expectedCollections];
   }
-  
+
   for (const coll of expectedCollections) {
     if (!ALL_COLLECTIONS.includes(coll)) {
       ALL_COLLECTIONS.push(coll);
     }
   }
-  
+
   for (let i = restoreCollectionIndex; i < ALL_COLLECTIONS.length; i++) {
     const coll = ALL_COLLECTIONS[i];
     restoreCollectionIndex = i;
-    
+
     // 🛡 STRICT VALIDATION: Ensure collection name is valid
     if (!coll || typeof coll !== 'string') {
         console.warn('Skipping invalid collection name:', coll);
@@ -2422,7 +2418,7 @@ async function downloadDataFromFirebase_VB(schoolId) {
     }
 
     console.log(`Restoring collection: ${coll}`);
-    
+
     try {
       // 🔥 FIX: Changed `db` to `fdb`. 
       // Ensure 'fdb' matches the variable name you use for getFirestore(app)
@@ -2434,32 +2430,32 @@ async function downloadDataFromFirebase_VB(schoolId) {
         teacherId,
         coll
       );
-      
+
       const snapshot = await getDocs(collRef);
       const serverIds = [];
-      
+
       for (const d of snapshot.docs) {
         const serverData = d.data() || {};
         const docId = d.id;
-        
+
         serverIds.push(docId);
-        
+
         const localData = await getIndexedDB(coll, docId);
-        
+
         let dataToSave = {
           ...serverData,
           id: docId
         };
-        
+
         if (collectionsWithPhotos.includes(coll) && localData && localData.photo) {
           dataToSave.photo = localData.photo;
         }
-        
+
         await setIndexedDB(coll, docId, dataToSave);
       }
-      
+
       const localAll = await getIndexedDB(coll);
-      
+
       if (Array.isArray(localAll)) {
         for (const local of localAll) {
           if (!local || typeof local.id === 'undefined') continue;
@@ -2469,21 +2465,21 @@ async function downloadDataFromFirebase_VB(schoolId) {
           }
         }
       }
-      
+
       console.log(`✔ Synced collection (Teacher ${teacherId}): ${coll} (${snapshot.docs.length})`);
-      
+
     } catch (err) {
       console.warn(`Failed restoring collection ${coll}`, err);
       throw err;
     }
   }
-  
+
   restoreCollectionIndex = 0;
-  
+
   if (typeof refreshUI === 'function') {
     refreshUI();
   }
-  
+
   console.log('✅ Full Version B Restore Complete');
 }
 
@@ -6188,6 +6184,8 @@ window.hideFeesHistory = function() {
 
 
 
+
+
 // ----------------- PROFILE -----------------
 window.saveProfile = async function() {
   if (!auth || !auth.currentUser) {
@@ -6205,8 +6203,8 @@ window.saveProfile = async function() {
     const photoInput = document.getElementById('teacher-photo');
 
     if (!name || !schoolName || !phone) {
-  throw new Error('Please fill all required fields.'); 
-}
+      throw new Error('Please fill all required fields.'); 
+    }
 
     if (!/^\+260\d{9}$/.test(phone)) {
       throw new Error('Phone must be in +260xxxxxxxxx format (9 digits after +260).');
@@ -6236,26 +6234,26 @@ window.saveProfile = async function() {
     // ── Default profile image
     let profilePictureURL = 'https://via.placeholder.com/150?text=Avatar';
 
-    // ── Function to compress image (FIXED: Added reject handlers to prevent hanging)
+    // ── Function to compress image
     async function compressImage(file) {
       return new Promise((resolve, reject) => {
         const img = new Image();
         const reader = new FileReader();
-        
+
         reader.onload = (e) => { img.src = e.target.result; };
         reader.onerror = (err) => { reject(new Error('Failed to read file')); };
-        
+
         img.onload = () => {
           const canvas = document.createElement('canvas');
           const ctx = canvas.getContext('2d');
           const MAX_WIDTH = 600;
           const scaleSize = MAX_WIDTH / img.width;
-          
+
           canvas.width = MAX_WIDTH;
           canvas.height = img.height * scaleSize;
-          
+
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          
+
           canvas.toBlob(
             blob => {
               if (blob) resolve(blob);
@@ -6266,50 +6264,46 @@ window.saveProfile = async function() {
           );
         };
         img.onerror = (err) => { reject(new Error('Failed to load image into memory')); };
-        
+
         reader.readAsDataURL(file);
       });
     }
 
-    // ── Photo upload logic (FIXED: Non-blocking with strict timeout)
+    // ── Photo upload logic
     if (photoInput.files && photoInput.files[0]) {
       try {
         const file = photoInput.files[0];
-        
+
         if (!file.type.startsWith('image/')) {
           throw new Error('Please upload an image file.');
         }
-        
+
         console.log("Compressing image...");
         const compressedImage = await compressImage(file);
-        
+
         // Using the safe multi-tenant storage path
         const storageRef = ref(storage, `schools/${schoolId}/teachers/${uid}/profile.jpg`);
-        
+
         console.log("Uploading photo...");
-        
-        // Create a timeout promise (Abort upload if it takes longer than 8 seconds)
+
         const timeoutPromise = new Promise((_, reject) => 
           setTimeout(() => reject(new Error('Upload timeout')), 8000)
         );
 
-        // Race the upload against the timeout
         await Promise.race([
           uploadBytes(storageRef, compressedImage),
           timeoutPromise
         ]);
-        
+
         profilePictureURL = await getDownloadURL(storageRef);
         console.log("Photo uploaded successfully!");
-        
+
       } catch (err) {
-        // If anything fails (timeout, compression, network), we catch it here, 
-        // warn the console, and gracefully move on without breaking the save!
         console.warn("Photo upload skipped/aborted:", err.message);
       }
     }
 
-    // ── Save teacher metadata (FIXED: Removed the duplicate, broken setDoc block)
+    // ── Save teacher metadata 
     const teacherData = {
       id: uid,
       name,
@@ -6335,8 +6329,17 @@ window.saveProfile = async function() {
     await setIndexedDB('userProfile', uid, { uid, schoolId, ...teacherData });
     await setIndexedDB('teachers', uid, teacherData);
 
+    // 🔥 FIX: Explicitly set the global state variable here so the app knows who is logged in!
+    currentTeacher = email;
+
     closeProfileModal();  
     showDashboard();      
+
+    // 🔥 FIX: Trigger the restore function for the new user, just like in onAuthStateChanged
+    if (typeof safeRestore_VB === 'function') {
+      await safeRestore_VB(schoolId);
+    }
+
     triggerSync();           
 
   } catch (e) {
@@ -6347,26 +6350,19 @@ window.saveProfile = async function() {
   }
 };
 
-
-
-
-
 // ----------------- LOGOUT -----------------
 document.getElementById('logout-btn').addEventListener('click', async () => {
   try {
-    // 1. Reset restore state (if exists)
     if (typeof isRestoring !== 'undefined') {
       isRestoring = false;
       restoreRetryCount = 0;
       restoreCollectionIndex = 0;
     }
 
-    // 2. Ensure DB is initialized
     if (!db) {
-      await initIndexedDB();  // Assume defined
+      await initIndexedDB(); 
     }
 
-    // 3. Clear all stores
     const storeNames = Array.from(db.objectStoreNames);
     for (const storeName of storeNames) {
       await new Promise((resolve, reject) => {
@@ -6379,10 +6375,8 @@ document.getElementById('logout-btn').addEventListener('click', async () => {
     }
     console.log('All IndexedDB stores cleared ✔');
 
-    // 4. Sign out from Firebase
     await signOut(auth);
 
-    // 5. Reset UI
     currentTeacher = null;
     document.getElementById('auth-section').style.display = 'block';
     document.getElementById('dashboard').style.display = 'none';
@@ -6416,11 +6410,7 @@ document.getElementById('login-btn').addEventListener('click', async () => {
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
     authMsg.textContent = 'Login successful!';
 
-    // Init IndexedDB
     await initIndexedDB();
-
-    // The auth state listener will handle profile check and UI routing
-    // No need to duplicate logic here; just trigger sync if needed
     syncData();
 
   } catch (error) {
@@ -6443,9 +6433,6 @@ document.getElementById('register-btn').addEventListener('click', async () => {
   try {
     await createUserWithEmailAndPassword(auth, email, password);
     authMsg.textContent = 'Registration successful! Setting up profile...';
-
-    // Auth state listener will detect new user and show profile modal
-
   } catch (error) {
     console.error('Register error:', error);
     authMsg.textContent = `Error: ${error.message}`;
@@ -6469,12 +6456,11 @@ onAuthStateChanged(auth, async (user) => {
   }
 
   try {
-    // Fetch user doc
     const userDocRef = doc(fdb, 'users', user.uid);
     const userDoc = await getDoc(userDocRef);
 
     if (!userDoc.exists()) {
-      showProfileModal();  // New user: Show profile setup
+      showProfileModal();  
       return;
     }
 
@@ -6483,13 +6469,12 @@ onAuthStateChanged(auth, async (user) => {
     const teacherDoc = await getDoc(teacherDocRef);
 
     if (!teacherDoc.exists()) {
-      showProfileModal();  // Incomplete profile: Show setup
+      showProfileModal();  
       return;
     }
 
     const teacherData = teacherDoc.data();
 
-    // Cache profile locally
     await setIndexedDB('userProfile', user.uid, {
       uid: user.uid,
       schoolId,
@@ -6498,18 +6483,15 @@ onAuthStateChanged(auth, async (user) => {
 
     currentTeacher = user.email;
 
-    // Show dashboard
     showDashboard();
 
-    // Restore data if needed (assume safeRestore_VB is your restore function)
     if (typeof safeRestore_VB === 'function') {
       await safeRestore_VB(schoolId);
     }
 
-    // Check sync queue and update status
     const queue = await getIndexedDB('syncQueue') || [];
     if (queue.length > 0) {
-      updateSyncStatus('Not Synced – pending', '#ff4e50');  // Assume defined
+      updateSyncStatus('Not Synced – pending', '#ff4e50');  
     }
 
     syncData();
@@ -6519,6 +6501,9 @@ onAuthStateChanged(auth, async (user) => {
     authMsg.textContent = `Error: ${error.message}`;
   }
 });
+
+
+
 
 // ----------------- OTHER EVENT LISTENERS -----------------
 window.addEventListener('online', () => {
