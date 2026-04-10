@@ -6375,7 +6375,6 @@ document.getElementById('logout-btn').addEventListener('click', async () => {
 
     currentTeacher = null;
     
-    // 🔥 FIX: Strictly reset UI to Auth view and force Profile Modal closed
     document.getElementById('auth-section').style.display = 'block';
     document.getElementById('dashboard').style.display = 'none';
     if (typeof closeProfileModal === 'function') closeProfileModal();
@@ -6412,7 +6411,6 @@ document.getElementById('login-btn').addEventListener('click', async () => {
 
     await initIndexedDB();
     syncData();
-    // No need to hide auth UI here, onAuthStateChanged handles it automatically!
 
   } catch (error) {
     console.error('Login error:', error);
@@ -6434,7 +6432,6 @@ document.getElementById('register-btn').addEventListener('click', async () => {
   try {
     await createUserWithEmailAndPassword(auth, email, password);
     authMsg.textContent = 'Registration successful! Setting up profile...';
-    // No need to manually call showProfileModal here, onAuthStateChanged catches the new user!
   } catch (error) {
     console.error('Register error:', error);
     authMsg.textContent = `Error: ${error.message}`;
@@ -6445,13 +6442,11 @@ document.getElementById('register-btn').addEventListener('click', async () => {
 onAuthStateChanged(auth, async (user) => {
   const authMsg = document.getElementById('auth-msg');
 
-  // 🔥 FIX: Immediately hide profile modal just in case it was showing on app load.
   if (typeof closeProfileModal === 'function') {
     closeProfileModal();
   }
 
   if (!user) {
-    // 🔥 FIX: No user found. Strictly show auth page, hide dashboard.
     currentTeacher = null;
     document.getElementById('auth-section').style.display = 'block';
     document.getElementById('dashboard').style.display = 'none';
@@ -6464,11 +6459,53 @@ onAuthStateChanged(auth, async (user) => {
     return;
   }
 
-  // 🔥 FIX: AUTO-LOGIN PATH! User exists in Firebase memory.
-  // First, hide the auth section so the user doesn't see a flicker while we check Firestore.
+  // Hide the auth section immediately to prevent flickering
   document.getElementById('auth-section').style.display = 'none';
 
   try {
+    // 🔥 FIX 1: OFFLINE-FIRST CACHE CHECK
+    // Before hitting Firestore, check if we already have this user's profile locally.
+    let cachedProfile = null;
+    if (typeof getIndexedDB === 'function') {
+      try {
+        const result = await getIndexedDB('userProfile', user.uid);
+        // Handle variations in how your IndexedDB helper might return data
+        if (Array.isArray(result) && result.length > 0) {
+           cachedProfile = result.find(p => p.uid === user.uid) || result[0];
+        } else if (result && result.uid) {
+           cachedProfile = result;
+        }
+      } catch (cacheErr) {
+        console.warn("Local profile check skipped:", cacheErr);
+      }
+    }
+
+    // 🔥 FIX 2: IF LOCAL PROFILE EXISTS, LET THEM IN IMMEDIATELY (WORKS OFFLINE!)
+    if (cachedProfile) {
+      currentTeacher = user.email;
+      showDashboard();
+
+      // Check sync queue to show visual warning if they have pending offline data
+      if (typeof getIndexedDB === 'function' && typeof updateSyncStatus === 'function') {
+        const queue = await getIndexedDB('syncQueue') || [];
+        if (queue.length > 0) {
+          updateSyncStatus('Not Synced – pending', '#ff4e50');  
+        }
+      }
+
+      // Only attempt to run the heavy background sync if they are actually online
+      if (navigator.onLine && typeof syncData === 'function') {
+        syncData();
+      }
+      return; // 🛑 EXIT EARLY! We don't need to await Firestore.
+    }
+
+
+    // 🔥 FIX 3: IF NO CACHE, THEY MUST BE ONLINE TO FETCH FROM FIRESTORE (First Login on device)
+    if (!navigator.onLine) {
+        throw new Error("You are offline. An internet connection is required for your very first login on this device.");
+    }
+
     const userDocRef = doc(fdb, 'users', user.uid);
     const userDoc = await getDoc(userDocRef);
 
@@ -6486,7 +6523,7 @@ onAuthStateChanged(auth, async (user) => {
       return;
     }
 
-    // Profile exists! Auto-login is successful.
+    // Profile exists in Firestore! Save to cache for the next time they go offline.
     const teacherData = teacherDoc.data();
 
     await setIndexedDB('userProfile', user.uid, {
@@ -6496,8 +6533,6 @@ onAuthStateChanged(auth, async (user) => {
     });
 
     currentTeacher = user.email;
-
-    // Finally, show the dashboard.
     showDashboard();
 
     if (typeof safeRestore_VB === 'function') {
@@ -6515,12 +6550,18 @@ onAuthStateChanged(auth, async (user) => {
 
   } catch (error) {
     console.error('Auth state error:', error, error.stack);
-    if (authMsg) authMsg.textContent = `Error: ${error.message}`;
     
-    // 🔥 FIX: If Firestore fails (e.g. offline issue), ensure they are sent back to Auth safely
+    // Only show the auth message block if they completely failed to load data
     document.getElementById('auth-section').style.display = 'block';
+    
+    if (authMsg) {
+       authMsg.textContent = error.message.includes("offline") 
+        ? error.message 
+        : `Network Error: Could not load profile.`;
+    }
   }
 });
+
 
 
 
