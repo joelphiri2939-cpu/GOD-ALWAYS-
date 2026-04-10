@@ -6469,49 +6469,6 @@ onAuthStateChanged(auth, async (user) => {
   document.getElementById('auth-section').style.display = 'none';
 
   try {
-    // =========================================================================
-    // 🟢 ADDED: OFFLINE CACHE SHORTCUT (Does not change your original logic below)
-    // =========================================================================
-    let cachedProfile = null;
-    if (typeof getIndexedDB === 'function') {
-      try {
-        const result = await getIndexedDB('userProfile', user.uid);
-        if (Array.isArray(result) && result.length > 0) {
-           cachedProfile = result.find(p => p.uid === user.uid) || result[0];
-        } else if (result && result.uid) {
-           cachedProfile = result;
-        }
-      } catch (cacheErr) {
-        console.warn("Local profile check skipped:", cacheErr);
-      }
-    }
-
-    if (cachedProfile) {
-      // Shortcut taken! Profile exists locally, bypass Firestore and grant access.
-      currentTeacher = user.email;
-      showDashboard();
-
-      if (typeof safeRestore_VB === 'function') {
-        await safeRestore_VB(cachedProfile.schoolId);
-      }
-
-      const queue = await getIndexedDB('syncQueue') || [];
-      if (queue.length > 0 && typeof updateSyncStatus === 'function') {
-        updateSyncStatus('Not Synced – pending', '#ff4e50');  
-      }
-
-      if (navigator.onLine && typeof syncData === 'function') {
-        syncData();
-      }
-      return; // Exit here. The user is logged in perfectly from offline memory.
-    }
-    // =========================================================================
-    // 🔴 END ADDED SHORTCUT
-    // =========================================================================
-
-
-    // ⬇️ YOUR EXACT ORIGINAL LOGIC CONTINUES HERE FOR NEW/UNCACED USERS ⬇️
-
     const userDocRef = doc(fdb, 'users', user.uid);
     const userDoc = await getDoc(userDocRef);
 
