@@ -2272,7 +2272,6 @@ window.addEventListener('online', () => autoSyncAllFees());
 
 
 
-
 // ===============================
 // RESTORE CONTROLLER STATE
 // ===============================
@@ -2447,6 +2446,16 @@ async function downloadDataFromFirebase_VB(schoolId) {
           id: docId
         };
 
+        // 🛡 THE ENHANCEMENT: Self-Healing Data Normalization
+        // Inspired by the Headteacher dashboard fix. This standardizes the classId 
+        // to underscores locally so the Teacher App UI tables never fail to populate.
+        if (dataToSave.classId && typeof dataToSave.classId === 'string') {
+          // Preserving the original just in case it is needed elsewhere
+          dataToSave.originalClassId = dataToSave.classId; 
+          // Standardize spaces to underscores for local IndexedDB consistency
+          dataToSave.classId = dataToSave.classId.replace(/\s+/g, '_');
+        }
+
         if (collectionsWithPhotos.includes(coll) && localData && localData.photo) {
           dataToSave.photo = localData.photo;
         }
@@ -2482,6 +2491,8 @@ async function downloadDataFromFirebase_VB(schoolId) {
 
   console.log('✅ Full Version B Restore Complete');
 }
+
+
 
 
 
@@ -6184,7 +6195,6 @@ window.hideFeesHistory = function() {
 
 
 
-
 // ----------------- PROFILE -----------------
 window.saveProfile = async function() {
   if (!auth || !auth.currentUser) {
@@ -6323,7 +6333,7 @@ window.saveProfile = async function() {
       role: 'teacher'
     }, { merge: true });
 
-    // ── Offline cache
+    // ── Offline cache (CRITICAL FOR OFFLINE AUTH)
     await setIndexedDB('userProfile', uid, { uid, schoolId, ...teacherData });
     await setIndexedDB('teachers', uid, teacherData);
 
@@ -6336,7 +6346,7 @@ window.saveProfile = async function() {
       await safeRestore_VB(schoolId);
     }
 
-    triggerSync();           
+    if (typeof triggerSync === 'function') triggerSync();           
 
   } catch (e) {
     console.error('saveProfile failed:', e);
@@ -6374,23 +6384,22 @@ document.getElementById('logout-btn').addEventListener('click', async () => {
     await signOut(auth);
 
     currentTeacher = null;
-    
-    // 🔥 FIX: Strictly reset UI to Auth view and force Profile Modal closed
+
+    // Force UI reset
     document.getElementById('auth-section').style.display = 'block';
     document.getElementById('dashboard').style.display = 'none';
     if (typeof closeProfileModal === 'function') closeProfileModal();
 
-    if (typeof hideAllSections === 'function') {
-      hideAllSections();
-    }
+    if (typeof hideAllSections === 'function') hideAllSections();
+    
     document.getElementById('email').value = '';
     document.getElementById('password').value = '';
     document.getElementById('auth-msg').textContent = '';
-    if (clockInterval) clearInterval(clockInterval);
+    if (typeof clockInterval !== 'undefined' && clockInterval) clearInterval(clockInterval);
     history.pushState({ view: 'auth' }, '', '#auth');
 
   } catch (error) {
-    console.error('Logout error:', error, error.stack);
+    console.error('Logout error:', error);
     document.getElementById('auth-msg').textContent = `Error: ${error.message || 'Logout failed'}`;
   }
 });
@@ -6407,13 +6416,11 @@ document.getElementById('login-btn').addEventListener('click', async () => {
   }
 
   try {
-    const userCredential = await signInWithEmailAndPassword(auth, email, password);
-    authMsg.textContent = 'Login successful!';
-
+    authMsg.textContent = 'Logging in...';
+    await signInWithEmailAndPassword(auth, email, password);
     await initIndexedDB();
-    syncData();
-    // No need to hide auth UI here, onAuthStateChanged handles it automatically!
-
+    if (typeof syncData === 'function') syncData();
+    // onAuthStateChanged handles the rest!
   } catch (error) {
     console.error('Login error:', error);
     authMsg.textContent = `Error: ${error.message}`;
@@ -6432,47 +6439,60 @@ document.getElementById('register-btn').addEventListener('click', async () => {
   }
 
   try {
+    authMsg.textContent = 'Registering...';
     await createUserWithEmailAndPassword(auth, email, password);
-    authMsg.textContent = 'Registration successful! Setting up profile...';
-    // No need to manually call showProfileModal here, onAuthStateChanged catches the new user!
+    // onAuthStateChanged handles the rest!
   } catch (error) {
     console.error('Register error:', error);
     authMsg.textContent = `Error: ${error.message}`;
   }
 });
 
-// ----------------- AUTH STATE OBSERVER -----------------
+// ----------------- AUTH STATE OBSERVER (THE BRAIN) -----------------
 onAuthStateChanged(auth, async (user) => {
   const authMsg = document.getElementById('auth-msg');
 
-  // 🔥 FIX: Immediately hide profile modal just in case it was showing on app load.
-  if (typeof closeProfileModal === 'function') {
-    closeProfileModal();
-  }
+  // 1. BLANK SLATE: Force hide everything to prevent "ghost UI" flashes
+  document.getElementById('auth-section').style.display = 'none';
+  document.getElementById('dashboard').style.display = 'none';
+  if (typeof closeProfileModal === 'function') closeProfileModal();
 
+  // 2. NO USER: Strictly show Login/Register screen
   if (!user) {
-    // 🔥 FIX: No user found. Strictly show auth page, hide dashboard.
     currentTeacher = null;
     document.getElementById('auth-section').style.display = 'block';
-    document.getElementById('dashboard').style.display = 'none';
-    
-    if (typeof hideAllSections === 'function') {
-      hideAllSections();
-    }
-    if (clockInterval) clearInterval(clockInterval);
+    if (typeof hideAllSections === 'function') hideAllSections();
+    if (typeof clockInterval !== 'undefined' && clockInterval) clearInterval(clockInterval);
     history.pushState({ view: 'auth' }, '', '#auth');
     return;
   }
 
-  // 🔥 FIX: AUTO-LOGIN PATH! User exists in Firebase memory.
-  // First, hide the auth section so the user doesn't see a flicker while we check Firestore.
-  document.getElementById('auth-section').style.display = 'none';
-
+  // 3. USER EXISTS: Check for Offline Profile First (Cache-First Approach)
   try {
+    const localProfile = await getIndexedDB('userProfile', user.uid).catch(() => null);
+
+    if (localProfile && localProfile.schoolId) {
+      // 🎉 OFFLINE SUCCESS: We have their profile locally. Let them in instantly!
+      currentTeacher = user.email;
+      showDashboard();
+
+      if (typeof safeRestore_VB === 'function') safeRestore_VB(localProfile.schoolId);
+      if (typeof syncData === 'function') syncData();
+      
+      const queue = await getIndexedDB('syncQueue') || [];
+      if (queue.length > 0 && typeof updateSyncStatus === 'function') {
+        updateSyncStatus('Not Synced – pending', '#ff4e50');  
+      }
+      return; 
+    }
+
+    // 4. NO LOCAL PROFILE: We must check Firestore (Requires Network)
+    // If they are offline right now, this will fail and jump to the catch block.
     const userDocRef = doc(fdb, 'users', user.uid);
-    const userDoc = await getDoc(userDocRef);
+    const userDoc = await getDoc(userDocRef); 
 
     if (!userDoc.exists()) {
+      // Confirmed via Firestore: They are a brand new user.
       showProfileModal();  
       return;
     }
@@ -6482,13 +6502,15 @@ onAuthStateChanged(auth, async (user) => {
     const teacherDoc = await getDoc(teacherDocRef);
 
     if (!teacherDoc.exists()) {
+      // Confirmed via Firestore: They missed step 2 of registration.
       showProfileModal();  
       return;
     }
 
-    // Profile exists! Auto-login is successful.
+    // 5. FIRESTORE SUCCESS: They had a profile on the cloud, but not on this device.
     const teacherData = teacherDoc.data();
 
+    // Save to IndexedDB so they can log in offline next time
     await setIndexedDB('userProfile', user.uid, {
       uid: user.uid,
       schoolId,
@@ -6496,31 +6518,25 @@ onAuthStateChanged(auth, async (user) => {
     });
 
     currentTeacher = user.email;
-
-    // Finally, show the dashboard.
     showDashboard();
 
-    if (typeof safeRestore_VB === 'function') {
-      await safeRestore_VB(schoolId);
-    }
-
-    const queue = await getIndexedDB('syncQueue') || [];
-    if (queue.length > 0) {
-      if (typeof updateSyncStatus === 'function') {
-        updateSyncStatus('Not Synced – pending', '#ff4e50');  
-      }
-    }
-
-    syncData();
+    if (typeof safeRestore_VB === 'function') safeRestore_VB(schoolId);
+    if (typeof syncData === 'function') syncData();
 
   } catch (error) {
-    console.error('Auth state error:', error, error.stack);
-    if (authMsg) authMsg.textContent = `Error: ${error.message}`;
+    console.error('Auth state routing error:', error);
     
-    // 🔥 FIX: If Firestore fails (e.g. offline issue), ensure they are sent back to Auth safely
+    // 6. NETWORK FAILURE SAFETY NET
+    // If we reach here, it means they have no local profile AND they couldn't reach Firestore.
+    // DO NOT show the Profile Modal. Show the auth screen with an error.
     document.getElementById('auth-section').style.display = 'block';
+    
+    if (authMsg) {
+      authMsg.textContent = "Network error. Please connect to the internet to complete setup or log in on this device for the first time.";
+    }
   }
 });
+
 
 
 
