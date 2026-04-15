@@ -1163,11 +1163,11 @@ th, td { padding: 10px; text-align: left; }
   <h3>Add Student</h3>
   <div class="input-wrapper">
     <input type="text" id="student-id" placeholder="Student ID">
-    <label>Student ID</label>
+    <label>enter Student ID👨‍🎓</label>
   </div>
   <div class="input-wrapper">
-    <input type="text" id="student-name" placeholder="Student Name">
-    <label>Student Name</label>
+    <input type="text" id="student-name" placeholder=" Student Name">
+    <label>please enter a valid  Student Name 😊</label>
   </div>
   <div class="input-wrapper">
     <input type="tel" id="student-phone" placeholder="Parent Phone Number" pattern="\+260[0-9]{9}">
@@ -1175,7 +1175,7 @@ th, td { padding: 10px; text-align: left; }
   </div>
   <div class="input-wrapper">
     <textarea id="student-address" placeholder="Student Address"></textarea>
-    <label>Student Address (optional)</label>
+    <label>Student Address (optional)🤷‍♂️</label>
   </div>
   <div class="input-wrapper">
     <input type="file" id="student-photo" accept="image/*">
@@ -1184,7 +1184,7 @@ th, td { padding: 10px; text-align: left; }
   <button id="addStudentBtn" onclick="addStudent()">Add Student</button>
   <button id="clearBtn" onclick="clearStudentInputs()">Clear</button>
   <p id="add-msg"></p>
-  <p>Parent phone numbers allow teachers to contact parents for updates or issues. Addresses help track where students are coming from. Photos aid in student identification.</p>
+  <p>Parent phone numbers allow teachers to contact parents for updates or issues. Addresses help track where students are coming from. Photos aid in student identification🕵️‍♀️.</p>
 
   <!-- Students List Table -->
   <h3>Students List</h3>
@@ -2825,6 +2825,19 @@ async function compressImage(file) {
   });
 }
 
+
+function cleanStudentName(name) {
+  if (!name) return '';
+  
+  return name
+    .trim()
+    .replace(/\s+/g, ' ') // remove extra spaces
+    .toLowerCase()
+    .replace(/\b\w/g, c => c.toUpperCase()); // Capitalize each word
+}
+
+
+
 /* ------------------------------
    Add Student Flow
    ------------------------------ */
@@ -2845,15 +2858,63 @@ window.addStudent = async function() {
   if (!idInput || !nameInput || !phoneInput || !addressInput || !photoInput) return;
 
   const rawId = idInput.value.trim();
-  const name = nameInput.value.trim();
+  
+  let name = nameInput.value.trim();
+
+// Clean it automatically
+name = cleanStudentName(name);
+  
   const phone = phoneInput.value.trim();
   const address = addressInput.value.trim();
 
   if (!className) { showMessage(msgBox, 'Please select a class.', '#d9534f'); hideLoading(); return; }
-  if (!rawId || !name) { showMessage(msgBox, 'Student ID and Name are required.', '#d9534f'); hideLoading(); return; }
-  if (rawId.includes('/')) { showMessage(msgBox, "Student ID cannot contain '/'", '#d9534f'); hideLoading(); return; }
-  if (phone && !/^\+260[0-9]{9}$/.test(phone)) { showMessage(msgBox, "Phone must be +260XXXXXXXXX", '#d9534f'); hideLoading(); return; }
+  
+if (!rawId || !name) {
+  showMessage(msgBox, 'Student ID and Name are required.', '#d9534f');
+  hideLoading();
+  return;
+}
 
+
+if (!className) {
+  showMessage(msgBox, 'Please select a class.', '#d9534f');
+  hideLoading();
+  return;
+}
+
+if (!rawId || !name) {
+  showMessage(msgBox, 'Student ID and Name are required.', '#d9534f');
+  hideLoading();
+  return;
+}
+
+// ❌ Reject names without space (Joelphiri)
+if (!name.includes(' ')) {
+  showMessage(msgBox, 'Enter full name (First and Last name). Example: Joel Phiri', '#d9534f');
+  hideLoading();
+  return;
+}
+
+// ❌ Reject numbers/symbols
+if (!/^[A-Za-z\s]+$/.test(name)) {
+  showMessage(msgBox, 'Name must contain only letters and spaces.', '#d9534f');
+  hideLoading();
+  return;
+}
+
+// ❌ Invalid ID format
+if (rawId.includes('/')) {
+  showMessage(msgBox, "Student ID cannot contain '/'", '#d9534f');
+  hideLoading();
+  return;
+}
+
+// ❌ Phone validation
+if (phone && !/^\+260[0-9]{9}$/.test(phone)) {
+  showMessage(msgBox, "Phone must be +260XXXXXXXXX", '#d9534f');
+  hideLoading();
+  return;
+}
 
 
   const studentId = normId(rawId);
@@ -4853,7 +4914,7 @@ window.openIndividualStudentPDFForm = async function () {
       </select>
       <input type="date" class="sub-date md:col-span-2 border border-slate-300 rounded p-2 text-sm outline-none focus:border-blue-500" value="${date}">
       <input type="number" class="sub-score md:col-span-1 border border-slate-300 rounded p-2 text-sm outline-none font-bold text-blue-900 focus:border-blue-500" min="0" max="100" step="0.01" placeholder="Score%" value="${score ? round2(score) : ''}">
-      <button class="remove-sub md:col-span-1 text-red-500 bg-red-50 hover:bg-red-100 hover:text-red-700 py-2 rounded font-bold transition-colors w-full text-sm border border-red-100" title="Remove">Del</button>
+      <button class="remove-sub md:col-span-1 text-red-500 bg-red-50 hover:bg-red-100 hover:text-red-700 py-2 rounded font-bold transition-colors w-full text-sm border border-red-100" title="Remove">Delete</button>
     `;
     subjectsContainer.appendChild(div);
     div.querySelector('.remove-sub').addEventListener('click', () => div.remove());
@@ -4879,7 +4940,16 @@ window.openIndividualStudentPDFForm = async function () {
   // Submit & Generate PDF
   document.getElementById('generate-pdf-btn').addEventListener('click', async () => {
     const school = document.getElementById('pdf-school').value.trim().toUpperCase();
-    const pdfClass = document.getElementById('pdf-class').value.trim();
+    
+    
+    const rawClass = document.getElementById('pdf-class').value.trim();
+
+// Normalize class name → remove underscores, fix spacing, uppercase
+const pdfClass = rawClass
+  .replace(/_/g, ' ') // grade_12b → grade 12b
+  .replace(/\s+/g, ' ') // remove double spaces
+  .toUpperCase(); // → GRADE 12B
+    
     const teacher = document.getElementById('pdf-teacher').value.trim();
     const phone = document.getElementById('pdf-phone').value.trim();
     const pdfLevel = document.getElementById('pdf-level').value;
@@ -5218,12 +5288,28 @@ async function buildStudentPdfDefinition(
         { type: 'line', x1: 0, y1: 3, x2: 555, y2: 3, lineWidth: 1, lineColor: '#059669' }
     ], margin: [0, 0, 0, 8] }); // Reduced margin
 
-    // 2. Student Info
-    const studentInfoStack = [
-        { text: [ { text: 'Student Name: ', bold: true }, `${student.name || 'Unknown'}` ] },
-        { text: [ { text: 'Student ID: ', bold: true }, `${String(studentId)}` ] },
-        { text: [ { text: 'Class: ', bold: true }, `${opts.pdfClass || className}` ] }
-    ];
+// 🔧 Helper: format student name
+function formatStudentName(name) {
+  if (!name) return 'UNKNOWN';
+  
+  name = String(name).trim();
+  
+  // If already spaced → just uppercase
+  if (name.includes(' ')) return name.toUpperCase();
+  
+  // Split roughly in the middle if no space exists
+  const mid = Math.floor(name.length / 2);
+  return (name.slice(0, mid) + ' ' + name.slice(mid)).toUpperCase();
+}
+
+// 2. Student Info  
+const studentInfoStack = [
+  { text: [{ text: 'Student Name: ', bold: true }, `${student.name || 'Unknown'}`] },
+  { text: [{ text: 'Student ID: ', bold: true }, `${String(studentId)}`] },
+  { text: [{ text: 'Class: ', bold: true }, `${opts.pdfClass || className}`] }
+];
+
+
 
     let photoBlock = { width: 'auto', text: '' };
     if (student.photo && student.photo.startsWith('data:image/')) {
