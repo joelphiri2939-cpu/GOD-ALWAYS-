@@ -4689,124 +4689,245 @@ window.saveResults = async function () {
     }
   };
 
-  // -------------------------
-  // New: Manual form for individual student PDF generation (with pre-fill from history option)
-  // -------------------------
-  window.openIndividualStudentPDFForm = async function () {
-    const classEl = document.getElementById('results-class');
-    const searchIdEl = document.getElementById('results-search-student-id');
-    const levelFilterEl = document.getElementById('results-level-filter') || document.getElementById('results-level');
-    if (!classEl || !searchIdEl) return showToast('Select class and enter student ID', 'error');
 
-    const className = classEl.value.trim();
-    const studentId = searchIdEl.value.trim();
-    const level = levelFilterEl ? levelFilterEl.value : 'Senior Secondary';
-    if (!className || !studentId) return showToast('Select class and enter student ID', 'error');
 
-    // Fetch student details
-    let students = await getIndexedDB('students');
-    if (!Array.isArray(students)) students = [];
-    const student = students.find(s => String(s.id).trim() === studentId && classMatches(s, className));
-    if (!student) return showToast('Student not found', 'error');
 
-    // Option to pre-fill from history
-    const useHistory = confirm(`Pre-fill subjects and scores from history for ${student.name}? (Cancel for manual entry)`);
 
-    let entries = [];
-    if (useHistory) {
-      let results = await getIndexedDB('results');
-      if (!Array.isArray(results)) results = [];
-      results = results.filter(r => r.classId === className && r.scores && r.scores[studentId] !== undefined);
-      entries = results.map(r => {
-        const score = r.scores[studentId];
-        const { grade, remark } = zambianGrade(score, level);
-        return { subject: r.subject, testName: r.testName, category: r.category, date: r.date, score: round2(score), grade, remark };
-      });
+// -------------------------
+// PREMIUM: Manual Form for Individual Student PDF Generation
+// -------------------------
+window.openIndividualStudentPDFForm = async function () {
+  const classEl = document.getElementById('results-class');
+  const searchIdEl = document.getElementById('results-search-student-id');
+  const levelFilterEl = document.getElementById('results-level-filter') || document.getElementById('results-level');
+  
+  // Look for a category filter on the main page to inherit the user's intent
+  const categoryFilterEl = document.getElementById('results-category-filter') || document.getElementById('results-category');
+
+  if (!classEl || !searchIdEl) return showToast('Select class and enter student ID', 'error');
+
+  const className = classEl.value.trim();
+  const studentId = searchIdEl.value.trim();
+  const level = levelFilterEl ? levelFilterEl.value : 'Senior Secondary';
+  const requestedCategory = categoryFilterEl ? categoryFilterEl.value : 'All';
+
+  if (!className || !studentId) return showToast('Select class and enter student ID', 'error');
+
+  // Fetch student details
+  let students = await getIndexedDB('students');
+  if (!Array.isArray(students)) students = [];
+  const student = students.find(s => String(s.id).trim() === studentId && classMatches(s, className));
+  if (!student) return showToast('Student not found', 'error');
+
+  // Option to pre-fill from history
+  const useHistory = confirm(`Pre-fill subjects and scores from history for ${student.name}?\n\n(Target Category: ${requestedCategory})`);
+
+  let entries = [];
+  if (useHistory) {
+    let results = await getIndexedDB('results');
+    if (!Array.isArray(results)) results = [];
+    
+    // Filter by class and student
+    results = results.filter(r => r.classId === className && r.scores && r.scores[studentId] !== undefined);
+    
+    // 🎯 THE FIX: Filter history strictly by the requested category!
+    if (requestedCategory && requestedCategory.toLowerCase() !== 'all') {
+         results = results.filter(r => String(r.category).toLowerCase() === String(requestedCategory).toLowerCase());
     }
 
-    // Create form container
-    const formContainer = document.getElementById('individual-pdf-form') || document.createElement('div');
-    formContainer.id = 'individual-pdf-form';
-    formContainer.style.display = 'block';
-    formContainer.innerHTML = `<h3>Generate Individual PDF for ${escapeHTML(student.name)} (ID: ${studentId})</h3>
-      <label>School Name: <input type="text" id="pdf-school" placeholder="Enter school name"></label><br>
-      <label>Class: <input type="text" id="pdf-class" value="${escapeHTML(className)}" placeholder="Enter class"></label><br>
-      <label>Teacher Name: <input type="text" id="pdf-teacher" placeholder="Enter teacher name"></label><br>
-      <label>Teacher Phone: <input type="text" id="pdf-phone" placeholder="Enter phone"></label><br>
-      <label>Level: <select id="pdf-level">
-        <option value="${level}">${level}</option>
-        ${LEVELS.filter(l => l !== level).map(l => `<option value="${l}">${l}</option>`).join('')}
-      </select></label><br>
-      <h4>Subjects & Scores</h4>
-      <div id="subjects-container"></div>
-      <button id="add-subject-btn">Add Subject</button><br>
-      <label>Comments: <textarea id="pdf-comments" placeholder="Enter comments"></textarea></label><br>
-      <button id="generate-pdf-btn">Generate PDF</button>
-      <button id="close-pdf-form">Close</button>`;
-
-    document.body.appendChild(formContainer); // Append if not present
-
-    const subjectsContainer = document.getElementById('subjects-container');
-    function addSubjectRow(subject = '', testName = '', category = '', date = '', score = '') {
-      const div = document.createElement('div');
-      div.innerHTML = `
-        <input type="text" class="sub-subject" placeholder="Subject" value="${escapeHTML(subject)}">
-        <input type="text" class="sub-test" placeholder="Test Name" value="${escapeHTML(testName)}">
-        <select class="sub-category">
-          <option value="">Category</option>
-          ${CATEGORIES.map(c => `<option value="${c}" ${c === category ? 'selected' : ''}>${c}</option>`).join('')}
-        </select>
-        <input type="date" class="sub-date" value="${date}">
-        <input type="number" class="sub-score" min="0" max="100" step="0.01" placeholder="Score" value="${score ? round2(score) : ''}">
-        <button class="remove-sub">Remove</button><br>`;
-      subjectsContainer.appendChild(div);
-      div.querySelector('.remove-sub').addEventListener('click', () => div.remove());
-    }
-
-    // Pre-fill if using history
-    entries.forEach(e => addSubjectRow(e.subject, e.testName, e.category, e.date, e.score));
-
-    document.getElementById('add-subject-btn').addEventListener('click', () => addSubjectRow());
-
-    document.getElementById('generate-pdf-btn').addEventListener('click', async () => {
-      const school = document.getElementById('pdf-school').value.trim().toUpperCase();
-      const pdfClass = document.getElementById('pdf-class').value.trim();
-      const teacher = document.getElementById('pdf-teacher').value.trim();
-      const phone = document.getElementById('pdf-phone').value.trim();
-      const pdfLevel = document.getElementById('pdf-level').value;
-      const comments = document.getElementById('pdf-comments').value.trim();
-
-      const subRows = Array.from(subjectsContainer.querySelectorAll('div'));
-      const pdfEntries = subRows.map(row => {
-        const subject = row.querySelector('.sub-subject').value.trim();
-        const testName = row.querySelector('.sub-test').value.trim();
-        const category = row.querySelector('.sub-category').value;
-        const date = row.querySelector('.sub-date').value;
-        const score = Number(row.querySelector('.sub-score').value);
-        if (!subject || isNaN(score) || score < 0 || score > 100) return null;
-        const { grade, remark } = zambianGrade(score, pdfLevel);
-        return { subject, testName, category, date, score: round2(score), grade, remark };
-      }).filter(e => e !== null);
-
-      if (pdfEntries.length === 0) return showToast('Add at least one valid subject and score', 'error');
-
-      await exportStudentResultsPDF(className, studentId, {
-        title: `Student Report - ${studentId}`,
-        level: pdfLevel,
-        category: '', // Not filtering
-        comments,
-        testName: '', // Not filtering
-        school,
-        pdfClass,
-        teacher,
-        phone
-      }, pdfEntries); // Pass manual entries
+    entries = results.map(r => {
+      const score = r.scores[studentId];
+      const { grade, remark } = zambianGrade(score, level);
+      return { subject: r.subject, testName: r.testName, category: r.category, date: r.date, score: round2(score), grade, remark };
     });
+  }
 
-    document.getElementById('close-pdf-form').addEventListener('click', () => {
-      formContainer.style.display = 'none';
-    });
-  };
+  // Define global variables locally if they aren't available in scope
+  const cats = typeof CATEGORIES !== 'undefined' ? CATEGORIES : ['Weekly', 'Monthly', 'End of Term', 'Final Exam', 'Project'];
+  const levelsList = typeof LEVELS !== 'undefined' ? LEVELS : ['Primary', 'Junior Secondary', 'Senior Secondary'];
+
+  // Create Premium Form Container (Modal)
+  const formContainer = document.getElementById('individual-pdf-form') || document.createElement('div');
+  formContainer.id = 'individual-pdf-form';
+  formContainer.style.display = 'flex';
+  // Applying Tailwind classes for a premium darkened overlay
+  formContainer.className = 'fixed inset-0 bg-slate-900 bg-opacity-75 flex items-center justify-center z-50 p-4 backdrop-blur-sm';
+
+  formContainer.innerHTML = `
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[95vh] overflow-y-auto flex flex-col font-sans">
+      
+      <div class="bg-blue-700 text-white p-5 rounded-t-xl flex justify-between items-center shadow-md">
+        <div>
+          <h3 class="text-xl font-bold tracking-wide">Generate Professional Report Card</h3>
+          <p class="text-blue-100 text-sm mt-1">Student: <span class="font-bold text-white bg-blue-800 px-2 py-0.5 rounded">${escapeHTML(student.name)}</span> | ID: ${studentId}</p>
+        </div>
+        <button id="close-pdf-form-x" class="text-white hover:text-red-300 text-3xl font-bold transition-colors">&times;</button>
+      </div>
+
+      <div class="p-6 space-y-6">
+
+        <div class="bg-slate-50 p-5 rounded-lg border border-slate-200 shadow-sm">
+          <h4 class="text-md font-bold text-slate-800 mb-4 border-b border-slate-300 pb-2 flex items-center gap-2">
+            1. Report Details
+          </h4>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div>
+              <label class="block text-sm font-bold text-slate-700 mb-1">School Name</label>
+              <input type="text" id="pdf-school" class="w-full border border-slate-300 rounded p-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="e.g., HILLCREST NATIONAL TECH">
+              <p class="text-xs text-slate-500 mt-1">Appears proudly at the top of the report.</p>
+            </div>
+            <div>
+              <label class="block text-sm font-bold text-slate-700 mb-1">Class</label>
+              <input type="text" id="pdf-class" value="${escapeHTML(className)}" class="w-full border border-slate-300 rounded p-2.5 text-sm outline-none bg-slate-100" readonly>
+            </div>
+            <div>
+              <label class="block text-sm font-bold text-slate-700 mb-1">Target Category</label>
+              <select id="pdf-report-category" class="w-full border border-slate-300 rounded p-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none font-semibold text-blue-900">
+                <option value="All">All Categories (Comprehensive)</option>
+                ${cats.map(c => `<option value="${c}" ${String(c).toLowerCase() === String(requestedCategory).toLowerCase() ? 'selected' : ''}>${c}</option>`).join('')}
+              </select>
+              <p class="text-xs text-slate-500 mt-1">Ensures the PDF title and analytics match this category.</p>
+            </div>
+             <div>
+              <label class="block text-sm font-bold text-slate-700 mb-1">Grading Level</label>
+              <select id="pdf-level" class="w-full border border-slate-300 rounded p-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                <option value="${level}">${level}</option>
+                ${levelsList.filter(l => l !== level).map(l => `<option value="${l}">${l}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-bold text-slate-700 mb-1">Teacher Name</label>
+              <input type="text" id="pdf-teacher" class="w-full border border-slate-300 rounded p-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Teacher's Name">
+            </div>
+            <div>
+              <label class="block text-sm font-bold text-slate-700 mb-1">Teacher Phone (Optional)</label>
+              <input type="text" id="pdf-phone" class="w-full border border-slate-300 rounded p-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="+260...">
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-slate-50 p-5 rounded-lg border border-slate-200 shadow-sm">
+           <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 border-b border-slate-300 pb-2">
+              <div>
+                <h4 class="text-md font-bold text-slate-800">2. Academic Results</h4>
+                <p class="text-xs text-slate-500 mt-1">Review, add, or edit the scores before printing.</p>
+              </div>
+              <button id="add-subject-btn" class="mt-2 sm:mt-0 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded shadow transition-colors text-sm font-bold flex items-center gap-1">
+                 + Add Subject
+              </button>
+           </div>
+          <div id="subjects-container" class="space-y-3 max-h-[30vh] overflow-y-auto p-1"></div>
+        </div>
+
+        <div class="bg-slate-50 p-5 rounded-lg border border-slate-200 shadow-sm">
+          <h4 class="text-md font-bold text-slate-800 mb-2 border-b border-slate-300 pb-2">3. Teacher's Remarks</h4>
+          <textarea id="pdf-comments" rows="3" class="w-full border border-slate-300 rounded p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Type encouraging remarks or feedback for the student here..."></textarea>
+        </div>
+
+      </div>
+
+      <div class="bg-slate-100 p-5 rounded-b-xl flex justify-end gap-3 border-t border-slate-300">
+        <button id="close-pdf-form" class="px-6 py-2.5 text-slate-700 bg-white border border-slate-300 rounded hover:bg-slate-50 font-bold shadow-sm transition-colors">Cancel</button>
+        <button id="generate-pdf-btn" class="px-6 py-2.5 bg-blue-700 text-white rounded hover:bg-blue-800 font-bold shadow-md transition-colors">
+          Generate Premium PDF
+        </button>
+      </div>
+    </div>`;
+
+  if (!document.getElementById('individual-pdf-form')) {
+    document.body.appendChild(formContainer);
+  }
+
+  const subjectsContainer = document.getElementById('subjects-container');
+
+  function addSubjectRow(subject = '', testName = '', category = '', date = '', score = '') {
+    const div = document.createElement('div');
+    // Using grid layout for rows to ensure they align beautifully
+    div.className = "grid grid-cols-1 md:grid-cols-12 gap-2 bg-white p-3 border border-slate-200 rounded shadow-sm items-center hover:border-blue-300 transition-colors";
+    div.innerHTML = `
+      <input type="text" class="sub-subject md:col-span-3 border border-slate-300 rounded p-2 text-sm outline-none focus:border-blue-500" placeholder="Subject (e.g. Math)" value="${escapeHTML(subject)}">
+      <input type="text" class="sub-test md:col-span-3 border border-slate-300 rounded p-2 text-sm outline-none focus:border-blue-500" placeholder="Test Name" value="${escapeHTML(testName)}">
+      <select class="sub-category md:col-span-2 border border-slate-300 rounded p-2 text-sm outline-none focus:border-blue-500">
+        <option value="">Category</option>
+        ${cats.map(c => `<option value="${c}" ${c === category ? 'selected' : ''}>${c}</option>`).join('')}
+      </select>
+      <input type="date" class="sub-date md:col-span-2 border border-slate-300 rounded p-2 text-sm outline-none focus:border-blue-500" value="${date}">
+      <input type="number" class="sub-score md:col-span-1 border border-slate-300 rounded p-2 text-sm outline-none font-bold text-blue-900 focus:border-blue-500" min="0" max="100" step="0.01" placeholder="Score%" value="${score ? round2(score) : ''}">
+      <button class="remove-sub md:col-span-1 text-red-500 bg-red-50 hover:bg-red-100 hover:text-red-700 py-2 rounded font-bold transition-colors w-full text-sm border border-red-100" title="Remove">Del</button>
+    `;
+    subjectsContainer.appendChild(div);
+    div.querySelector('.remove-sub').addEventListener('click', () => div.remove());
+  }
+
+  // Pre-fill Logic handling empty states beautifully
+  if (entries.length === 0 && useHistory) {
+     subjectsContainer.innerHTML = `
+      <div class="bg-blue-50 text-blue-800 p-4 rounded text-center border border-blue-200">
+         <p class="font-semibold">No records found for the category: ${requestedCategory}.</p>
+         <p class="text-sm mt-1">Try changing the category above, or add a subject manually!</p>
+      </div>`;
+  } else {
+     entries.forEach(e => addSubjectRow(e.subject, e.testName, e.category, e.date, e.score));
+  }
+
+  document.getElementById('add-subject-btn').addEventListener('click', () => {
+     // Clear the "no records" message if it exists
+     if(subjectsContainer.querySelector('.bg-blue-50')) subjectsContainer.innerHTML = '';
+     addSubjectRow();
+  });
+
+  // Submit & Generate PDF
+  document.getElementById('generate-pdf-btn').addEventListener('click', async () => {
+    const school = document.getElementById('pdf-school').value.trim().toUpperCase();
+    const pdfClass = document.getElementById('pdf-class').value.trim();
+    const teacher = document.getElementById('pdf-teacher').value.trim();
+    const phone = document.getElementById('pdf-phone').value.trim();
+    const pdfLevel = document.getElementById('pdf-level').value;
+    const comments = document.getElementById('pdf-comments').value.trim();
+    
+    // 🎯 THE FIX: Get the exact category the user selected in this specific form
+    const finalReportCategory = document.getElementById('pdf-report-category').value;
+
+    const subRows = Array.from(subjectsContainer.querySelectorAll('div.grid'));
+    const pdfEntries = subRows.map(row => {
+      const subject = row.querySelector('.sub-subject').value.trim();
+      const testName = row.querySelector('.sub-test').value.trim();
+      const category = row.querySelector('.sub-category').value;
+      const date = row.querySelector('.sub-date').value;
+      const score = Number(row.querySelector('.sub-score').value);
+      if (!subject || isNaN(score) || score < 0 || score > 100) return null;
+      const { grade, remark } = zambianGrade(score, pdfLevel);
+      return { subject, testName, category, date, score: round2(score), grade, remark };
+    }).filter(e => e !== null);
+
+    if (pdfEntries.length === 0) return showToast('Please add at least one valid subject and score', 'error');
+
+    // Close modal to reveal the loading spinner behind it
+    formContainer.style.display = 'none';
+
+    // 🎯 THE FIX: Pass the specific category to the PDF Generator
+    await exportStudentResultsPDF(className, studentId, {
+      title: finalReportCategory && finalReportCategory !== 'All' ? `${finalReportCategory} Results Report` : `Comprehensive Academic Report`,
+      level: pdfLevel,
+      category: finalReportCategory, // This is what triggers the filter in your PDF code!
+      comments,
+      testName: '', // Not filtering by test name here
+      school,
+      pdfClass,
+      teacher,
+      phone
+    }, pdfEntries); 
+  });
+
+  // Close handlers
+  const closeHandler = () => formContainer.style.display = 'none';
+  document.getElementById('close-pdf-form').addEventListener('click', closeHandler);
+  document.getElementById('close-pdf-form-x').addEventListener('click', closeHandler);
+};
+
+
+
+
 
 
   // -------------------------
@@ -4925,230 +5046,13 @@ window.saveResults = async function () {
       return html;
     }
 
+// ==========================================
+// PDF, CHART & HTML2PDF HELPER FUNCTIONS
+// ==========================================
 
-// Enhanced: Printable report for single student (manual entries + school/class/teacher + analytics + chart)
-async function buildStudentPdfDefinition(
-  className,
-  studentId,
-  {
-    title = '',
-    category = '',
-    comments = '',
-    testName = '',
-    level = '',
-    school = '',
-    pdfClass = '',
-    teacher = '',
-    phone = ''
-  } = {},
-  manualEntries = []
-) {
-  try {
-    // -------------------------------
-    // 1️⃣ Load Student Data
-    // -------------------------------
-    let students = await getIndexedDB('students');
-    if (!Array.isArray(students)) students = [];
-
-    // Normalized ID helper
-    const normalize = v => String(v ?? '').trim().toLowerCase();
-
-    // Match student ID (case-insensitive, trimmed)
-    const student = students.find(s => normalize(s.id) === normalize(studentId));
-
-    // Fallback if student missing — return an error object
-    if (!student) {
-      console.error(`❌ Student not found for ID: ${studentId}`);
-      showToast('Student not found in database', 'error');
-      return {
-        content: [
-          { text: 'Error: Student not found', style: 'errorHeader' },
-          { text: `No record exists for ID: ${studentId}` },
-          { text: 'Please verify that the student exists in the current class database.' }
-        ],
-        styles: {
-          errorHeader: { fontSize: 18, bold: true, color: 'red', alignment: 'center' }
-        }
-      };
-    }
-
-    // -------------------------------
-    // 2️⃣ Prepare Entries (Manual or History)
-    // -------------------------------
-    let reportLevel = level || 'Senior Secondary';
-    let entries = Array.isArray(manualEntries) ? manualEntries.slice() : [];
-
-    // Fallback: fetch from results DB if no manual entries
-    if (entries.length === 0) {
-      let results = await getIndexedDB('results');
-      if (!Array.isArray(results)) results = [];
-
-      results = results.filter(r => {
-        const c = r.classId || r.class || r.className;
-        if (!c) return false;
-        if (String(c).trim().toLowerCase() !== String(className).trim().toLowerCase()) return false;
-        if (!r.scores || typeof r.scores !== 'object') return false;
-
-        // robust check: see if any key in r.scores matches the studentId when normalized
-        const keys = Object.keys(r.scores);
-        return keys.some(k => normalize(k) === normalize(studentId));
-      });
-
-      if (category) results = results.filter(r => r.category === category);
-      if (testName) results = results.filter(r => r.testName === testName);
-      if (level) results = results.filter(r => r.level === level);
-
-      if (!reportLevel && results.length) {
-        reportLevel = results[0].level || 'Senior Secondary';
-      }
-
-      entries = results.map(r => {
-        // retrieve the actual score by matching normalized key
-        let scoreValue = null;
-        if (r.scores && typeof r.scores === 'object') {
-          for (const [k, v] of Object.entries(r.scores)) {
-            if (normalize(k) === normalize(studentId)) {
-              scoreValue = v;
-              break;
-            }
-          }
-        }
-        const scoreNum = Number(scoreValue || 0);
-        const { grade, remark } = zambianGrade(scoreNum, reportLevel);
-        return {
-          date: r.date,
-          subject: r.subject,
-          testName: r.testName,
-          category: r.category,
-          score: round2(scoreNum),
-          grade,
-          remark
-        };
-      }).sort((a, b) => (a.date < b.date ? 1 : -1));
-    }
-
-    // -------------------------------
-    // 3️⃣ Build PDF Definition Content
-    // -------------------------------
-    const content = [
-      { text: title || 'Student Results Report', style: 'header' },
-      { text: `Generated: ${new Date().toLocaleString()}`, style: 'subheader', alignment: 'center' },
-      { text: school || 'SCHOOL NAME', style: 'schoolName' },
-      { text: `Class: ${pdfClass || className} | Teacher: ${teacher || 'Teacher Name'} | Phone: ${phone || 'Phone'}`, alignment: 'center', margin: [0, 0, 0, 20] },
-      { text: `${student.name || 'Unknown Student'} (ID: ${String(studentId)})`, style: 'studentHeader' }
-    ];
-
-    // Add student photo if available (assuming it's a data URI)
-    if (student.photo) {
-      content.push({
-        image: student.photo,
-        width: 120,
-        alignment: 'center',
-        margin: [0, 0, 0, 20]
-      });
-    }
-
-    if (!entries.length) {
-      content.push({
-        text: 'No results found for this student.',
-        italics: true,
-        alignment: 'center',
-        margin: [0, 50, 0, 0]
-      });
-    } else {
-      // Build table
-      const tableBody = [
-        ['Date', 'Subject', 'Test', 'Category', 'Score (%)', 'Grade', 'Remark']
-      ];
-      entries.forEach(e => {
-        tableBody.push([
-          e.date || '',
-          e.subject || '',
-          e.testName || '',
-          e.category || '',
-          String(e.score || ''),
-          e.grade || '',
-          e.remark || ''
-        ]);
-      });
-
-      content.push({
-        table: {
-          headerRows: 1,
-          widths: ['auto', '*', 'auto', 'auto', 'auto', 'auto', '*'],
-          body: tableBody
-        },
-        layout: 'lightHorizontalLines',
-        margin: [0, 20, 0, 20]
-      });
-
-      // Overall Average
-      const avg = round2(entries.reduce((a, e) => a + (Number(e.score) || 0), 0) / entries.length);
-      const { grade: overallGrade, remark: overallRemark } = zambianGrade(avg, reportLevel);
-      content.push({
-        text: `Overall Average: ${avg}% - Grade: ${overallGrade} (${overallRemark})`,
-        style: 'summaryHeader',
-        margin: [0, 10, 0, 5]
-      });
-
-      // Analytics Summary
-      const { mean, pass, passRate } = await computeStudentStats(className, studentId, reportLevel);
-      content.push(
-        { text: 'Analytics Summary', style: 'summaryHeader' },
-        { text: `Average: ${mean}%` },
-        { text: `Pass/Fail: ${pass}` },
-        { text: `Pass Rate: ${passRate}%` }
-      );
-
-      // Placeholder for chart (will be inserted in export if applicable)
-      content.push('{{CHART_PLACEHOLDER}}');
-    }
-
-    // Comments & Signature
-    if (comments) {
-      content.push(
-        { text: "Teacher's Remarks", style: 'remarksHeader', margin: [0, 20, 0, 5] },
-        { text: comments, margin: [0, 0, 0, 10] },
-        { text: 'Teacher Signature: __________________________  Date: __________', alignment: 'right' }
-      );
-    }
-
-    const dd = {
-      pageSize: 'A4',
-      pageMargins: [40, 60, 40, 60],
-      content,
-      footer: { text: `TeachMate Student Results Report — Generated on ${todayString()}`, alignment: 'center', style: 'footer' },
-      styles: {
-        header: { fontSize: 22, bold: true, alignment: 'center', margin: [0, 0, 0, 10] },
-        subheader: { fontSize: 12, alignment: 'center', margin: [0, 0, 0, 20] },
-        schoolName: { fontSize: 18, bold: true, alignment: 'center', margin: [0, 0, 0, 10] },
-        studentHeader: { fontSize: 16, bold: true, alignment: 'center', margin: [0, 0, 0, 10] },
-        summaryHeader: { fontSize: 14, bold: true, alignment: 'center' },
-        remarksHeader: { fontSize: 12, bold: true },
-        footer: { fontSize: 10, color: '#777', margin: [0, 20, 0, 0] }
-      }
-    };
-
-    console.log('DEBUG: buildStudentPdfDefinition generated for studentId:', studentId);
-    return { dd, entries }; // Return dd and entries for chart generation
-
-  } catch (err) {
-    console.error('❌ buildStudentPdfDefinition error:', err);
-    return {
-      content: [
-        { text: 'Error Generating Report', style: 'errorHeader' },
-        { text: err.message || 'Unknown error occurred' }
-      ],
-      styles: {
-        errorHeader: { fontSize: 18, bold: true, color: 'red', alignment: 'center' }
-      }
-    };
-  }
-}
-
-// Helper to load scripts
 function loadScript(url) {
   return new Promise((resolve, reject) => {
+    if (document.querySelector(`script[src="${url}"]`)) return resolve();
     const script = document.createElement('script');
     script.src = url;
     script.onload = resolve;
@@ -5157,7 +5061,6 @@ function loadScript(url) {
   });
 }
 
-// Ensure pdfMake is loaded
 async function ensurePdfMake() {
   if (typeof pdfMake !== 'undefined') return pdfMake;
   try {
@@ -5166,101 +5069,10 @@ async function ensurePdfMake() {
     return pdfMake;
   } catch (e) {
     console.error('Failed to load pdfMake:', e);
-    throw e;
+    throw new Error('Could not load the PDF engine.');
   }
 }
 
-
-// ----------------------------------
-// Global PDF Table Auto-Chunker
-// ----------------------------------
-function autoChunkTables(doc, options = {}) {
-  const {
-    rowsPerPage = 20,
-      pageBreakHTML = '<div style="page-break-after: always;"></div>'
-  } = options;
-
-  const tables = Array.from(doc.querySelectorAll('table'));
-
-  tables.forEach(table => {
-    const tbody = table.querySelector('tbody');
-    if (!tbody) return;
-
-    const rows = Array.from(tbody.querySelectorAll('tr'));
-    if (rows.length <= rowsPerPage) return;
-
-    const thead = table.querySelector('thead');
-    const parent = table.parentNode;
-
-    // Remove original table
-    parent.removeChild(table);
-
-    for (let i = 0; i < rows.length; i += rowsPerPage) {
-      const newTable = document.createElement('table');
-
-      // clone header
-      if (thead) {
-        const newThead = thead.cloneNode(true);
-        newTable.appendChild(newThead);
-      }
-
-      const newTbody = document.createElement('tbody');
-      rows.slice(i, i + rowsPerPage).forEach(r => {
-        newTbody.appendChild(r.cloneNode(true));
-      });
-
-      newTable.appendChild(newTbody);
-      parent.appendChild(newTable);
-
-      if (i + rowsPerPage < rows.length) {
-        parent.insertAdjacentHTML('beforeend', pageBreakHTML);
-      }
-    }
-  });
-}
-
-
-
-async function waitForStableLayout(doc, timeout =20000) {
-  return new Promise(resolve => {
-    let lastHeight = 0;
-    let stableCycles = 0;
-    let rafStable = 0;
-
-    const check = () => {
-      const h = doc.body.scrollHeight;
-
-      if (h === lastHeight) {
-        stableCycles++;
-      } else {
-        stableCycles = 0;
-        lastHeight = h;
-      }
-
-      // require BOTH:
-      // - height stable for time
-      // - multiple animation frames stable
-      if (stableCycles >= 6) {
-        rafStable++;
-        if (rafStable >= 3) {
-          resolve();
-          return;
-        }
-      } else {
-        rafStable = 0;
-      }
-
-      requestAnimationFrame(check);
-    };
-
-    requestAnimationFrame(check);
-    setTimeout(resolve, timeout);
-  });
-}
-
-
-
-// Ensure Chart.js is loaded
 async function ensureChartJs() {
   if (typeof Chart !== 'undefined') return Chart;
   try {
@@ -5272,19 +5084,30 @@ async function ensureChartJs() {
   }
 }
 
-// Generate chart image as base64
+// 🌟 FIX: Added missing ensureHtml2pdf for Class Reports
+async function ensureHtml2pdf() {
+  if (typeof html2pdf !== 'undefined') return html2pdf;
+  try {
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js');
+    return html2pdf;
+  } catch (e) {
+    console.error('Failed to load html2pdf:', e);
+    throw e;
+  }
+}
+
 async function generateChartImage(entries) {
   if (!entries || !entries.length) return null;
-
   await ensureChartJs();
 
   const canvas = document.createElement('canvas');
-  canvas.width = 500;
-  canvas.height = 300;
+  // 🌟 ENHANCEMENT: Strict dimensions to prevent chart from breaking the single-page layout
+  canvas.width = 300; 
+  canvas.height = 150;
   canvas.style.display = 'none';
   document.body.appendChild(canvas);
 
-  const chartLabels = entries.map(e => `${e.subject} (${e.testName})`);
+  const chartLabels = entries.map(e => e.subject.substring(0, 8)); // Shorten labels to fit
   const chartData = entries.map(e => e.score);
 
   new Chart(canvas, {
@@ -5292,21 +5115,17 @@ async function generateChartImage(entries) {
     data: {
       labels: chartLabels,
       datasets: [{
-        label: 'Student Scores (%)',
+        label: 'Scores (%)',
         data: chartData,
-        backgroundColor: 'rgba(75, 192, 192, 0.2)',
-        borderColor: 'rgba(75, 192, 192, 1)',
+        backgroundColor: 'rgba(54, 162, 235, 0.6)', // Professional Blue
+        borderColor: 'rgba(54, 162, 235, 1)',
         borderWidth: 1
       }]
     },
     options: {
       responsive: false,
-      scales: {
-        y: {
-          beginAtZero: true,
-          max: 100
-        }
-      }
+      plugins: { legend: { display: false } }, // Hide legend to save space
+      scales: { y: { beginAtZero: true, max: 100 } }
     }
   });
 
@@ -5315,57 +5134,292 @@ async function generateChartImage(entries) {
   return dataURL;
 }
 
-// ✅ Enhanced: Export for single student using pdfmake to avoid rendering issues
+
+
+// ==========================================
+// INDIVIDUAL STUDENT REPORT (1-PAGE STRICT & ENHANCED COLORS)
+// ==========================================
+
+// Helper: Smart detection of Zambian grade levels
+function detectGradeLevel(className) {
+    if (!className) return 'Senior Secondary'; 
+    const cls = String(className).toLowerCase();
+    
+    if (cls.match(/(10|11|12)/)) return 'Senior Secondary';
+    if (cls.match(/(8|9)/)) return 'Junior Secondary';
+    if (cls.match(/(1|2|3|4|5|6|7)/)) return 'Primary';
+    
+    return 'Senior Secondary'; 
+}
+
+async function buildStudentPdfDefinition(
+  className, studentId, opts = {}, manualEntries = []
+) {
+  try {
+    let students = await getIndexedDB('students');
+    if (!Array.isArray(students)) students = [];
+
+    const normalize = v => String(v ?? '').trim().toLowerCase();
+    const student = students.find(s => normalize(s.id) === normalize(studentId));
+
+    if (!student) throw new Error(`Student not found for ID: ${studentId}`);
+
+    let reportLevel = opts.level || detectGradeLevel(className);
+    let entries = Array.isArray(manualEntries) ? manualEntries.slice() : [];
+
+    if (entries.length === 0) {
+      let results = await getIndexedDB('results') || [];
+      
+      results = results.filter(r => {
+        const c = r.classId || r.class || r.className;
+        if (!c || String(c).trim().toLowerCase() !== String(className).trim().toLowerCase()) return false;
+        return r.scores && Object.keys(r.scores).some(k => normalize(k) === normalize(studentId));
+      });
+
+      if (opts.category && opts.category.toLowerCase() !== 'all') {
+          results = results.filter(r => String(r.category).toLowerCase() === String(opts.category).toLowerCase());
+      }
+      if (opts.testName) results = results.filter(r => r.testName === opts.testName);
+
+      entries = results.map(r => {
+        let scoreValue = 0;
+        for (const [k, v] of Object.entries(r.scores)) {
+          if (normalize(k) === normalize(studentId)) { scoreValue = Number(v); break; }
+        }
+        const { grade, remark } = zambianGrade(scoreValue, reportLevel);
+        return { date: r.date, subject: r.subject, testName: r.testName, category: r.category, score: round2(scoreValue), grade, remark };
+      }).sort((a, b) => (a.date < b.date ? 1 : -1));
+    }
+
+    const totalRecords = entries.length;
+    const avg = totalRecords ? round2(entries.reduce((a, e) => a + (Number(e.score) || 0), 0) / totalRecords) : 0;
+    const { grade: overallGrade, remark: overallRemark } = zambianGrade(avg, reportLevel);
+    
+    let passedSubjects = 0;
+    entries.forEach(e => { if (Number(e.score) >= 40) passedSubjects++; });
+    const currentPassRate = totalRecords ? round2((passedSubjects / totalRecords) * 100) : 0;
+    
+    const studentStatus = currentPassRate >= 50 ? 'Proceed' : 'Needs Improvement';
+    // 🎨 Dynamic Green for success, Red/Dark for improvement
+    const statusColor = currentPassRate >= 50 ? '#15803d' : '#b91c1c'; 
+
+    const safeComments = (opts.comments || 'No comments provided.').replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '');
+
+    const content = [];
+
+    // 1. Header 
+    content.push({ text: opts.school || 'OFFICIAL ACADEMIC REPORT', style: 'schoolName' });
+    const reportSubtitle = opts.category && opts.category.toLowerCase() !== 'all' ? `${opts.category} Results Report` : `Comprehensive Academic Report`;
+    content.push({ text: reportSubtitle, style: 'header' });
+    
+    // 🎨 Professional Dual-Tone Line (Blue and Emerald Green)
+    content.push({ canvas: [
+        { type: 'line', x1: 0, y1: 0, x2: 555, y2: 0, lineWidth: 2, lineColor: '#1e3a8a' },
+        { type: 'line', x1: 0, y1: 3, x2: 555, y2: 3, lineWidth: 1, lineColor: '#059669' }
+    ], margin: [0, 0, 0, 8] }); // Reduced margin
+
+    // 2. Student Info
+    const studentInfoStack = [
+        { text: [ { text: 'Student Name: ', bold: true }, `${student.name || 'Unknown'}` ] },
+        { text: [ { text: 'Student ID: ', bold: true }, `${String(studentId)}` ] },
+        { text: [ { text: 'Class: ', bold: true }, `${opts.pdfClass || className}` ] }
+    ];
+
+    let photoBlock = { width: 'auto', text: '' };
+    if (student.photo && student.photo.startsWith('data:image/')) {
+        photoBlock = { image: student.photo, fit: [45, 45], margin: [0, 0, 8, 0] }; // Slightly smaller photo
+    }
+
+    content.push({
+      columns: [
+        photoBlock,
+        { width: '*', stack: studentInfoStack, margin: [0, 0, 0, 0] },
+        {
+          width: '40%',
+          stack: [
+            { text: [ { text: 'Level: ', bold: true }, `${reportLevel}` ] },
+            { text: [ { text: 'Teacher: ', bold: true }, `${opts.teacher || 'Not Assigned'}` ] },
+            { text: [ { text: 'Date: ', bold: true }, `${new Date().toLocaleDateString()}` ] }
+          ],
+          alignment: 'right',
+          margin: [0, 0, 0, 0]
+        }
+      ],
+      margin: [0, 0, 0, 10] // Reduced margin to save space
+    });
+
+    if (!entries.length) {
+      content.push({ text: `No ${opts.category && opts.category !== 'All' ? opts.category : ''} academic records found.`, italics: true, alignment: 'center', margin: [0, 20, 0, 0] });
+    } else {
+      
+      // 3. Results Table (Clear Demarcations)
+      const tableBody = [
+        [
+          { text: 'Date', style: 'tableHeader' }, 
+          { text: 'Subject', style: 'tableHeader' }, 
+          { text: 'Category', style: 'tableHeader' }, 
+          { text: 'Score (%)', style: 'tableHeader' }, 
+          { text: 'Grade', style: 'tableHeader' }, 
+          { text: 'Remark', style: 'tableHeader' }
+        ]
+      ];
+      
+      entries.forEach(e => {
+        tableBody.push([ 
+            e.date || '', 
+            e.subject || '', 
+            e.category || '-', 
+            { text: String(e.score || '0'), bold: true }, 
+            e.grade || '', 
+            e.remark || '' 
+        ]);
+      });
+
+      content.push({
+        table: {
+          headerRows: 1,
+          widths: ['auto', '*', 'auto', 'auto', 'auto', '*'],
+          body: tableBody
+        },
+        layout: {
+          fillColor: function (rowIndex) {
+            if (rowIndex === 0) return '#1e3a8a'; 
+            return (rowIndex % 2 === 0) ? '#f8fafc' : '#ffffff'; 
+          },
+          // 📏 CLEAR GRID LINES RESTORED
+          hLineWidth: function () { return 0.75; }, 
+          vLineWidth: function () { return 0.75; }, 
+          hLineColor: function (i, node) { return (i === 0 || i === node.table.body.length) ? '#1e3a8a' : '#94a3b8'; }, // Slate gray lines
+          vLineColor: function () { return '#94a3b8'; }, // Slate gray lines
+          paddingTop: function() { return 3; }, // EXTREMELY TIGHT PADDING to force 1 page
+          paddingBottom: function() { return 3; }
+        },
+        margin: [0, 0, 0, 10]
+      });
+
+      // 4. Analytics Block (With Green Accents)
+      content.push({ text: 'Performance Analytics Summary', style: 'summaryHeader', margin: [0, 0, 0, 4] });
+      
+      content.push({
+          table: {
+              widths: ['*', '*', '*', '*'],
+              body: [
+                  [
+                      { text: 'Overall Average', style: 'statLabel' },
+                      { text: 'Final Grade', style: 'statLabel' },
+                      { text: 'Pass Rate', style: 'statLabel' },
+                      { text: 'Status', style: 'statLabel' }
+                  ],
+                  [
+                      { text: `${avg}%`, style: 'statValue' },
+                      { text: `${overallGrade}`, style: 'statValue' },
+                      // 🎨 Injecting dynamic color for success metrics
+                      { text: `${currentPassRate}%`, style: 'statValue', color: statusColor },
+                      { text: `${studentStatus}`, style: 'statValue', color: statusColor }
+                  ]
+              ]
+          },
+          layout: 'noBorders',
+          margin: [0, 0, 0, 10]
+      });
+    }
+
+    // 5. Comments & Signatures
+    content.push({ canvas: [{ type: 'line', x1: 0, y1: 0, x2: 555, y2: 0, lineWidth: 1, lineColor: '#cbd5e1' }], margin: [0, 0, 0, 6] });
+    
+    content.push({ text: "Teacher's Remarks:", style: 'remarksHeader', margin: [0, 0, 0, 2] });
+    content.push({ text: safeComments, italics: !opts.comments, margin: [0, 0, 0, 15] });
+
+    content.push({
+      columns: [
+        { text: 'Class Teacher Signature: ___________________', width: '50%' },
+        { text: 'Head Teacher Signature: ___________________', width: '50%', alignment: 'right' }
+      ]
+    });
+
+    content.push({
+        text: 'Grading Key: 75-100% (Distinction) | 60-74% (Merit) | 50-59% (Credit) | 40-49% (Satisfactory) | 0-39% (Unsatisfactory)',
+        style: 'legend',
+        margin: [0, 10, 0, 0]
+    });
+
+    const dd = {
+      pageSize: 'A4',
+      // 📏 TIGHT MARGINS: Crucial for forcing 1 page
+      pageMargins: [20, 20, 20, 20], 
+      watermark: { text: opts.school || 'TEACHMATE', color: '#f1f5f9', opacity: 0.5, bold: true, italics: false },
+      content,
+      footer: { text: `TeachMate 3.0 Pro System — Generated ${new Date().toLocaleString()}`, alignment: 'center', style: 'footer' },
+      styles: {
+        schoolName: { fontSize: 16, bold: true, alignment: 'center', margin: [0, 0, 0, 2], color: '#0f172a' },
+        header: { fontSize: 11, alignment: 'center', margin: [0, 0, 0, 4], color: '#475569' },
+        tableHeader: { bold: true, fontSize: 9, color: '#ffffff', alignment: 'center' },
+        summaryHeader: { fontSize: 11, bold: true, color: '#059669', borderBottom: true }, // Emerald Green Header
+        statLabel: { fontSize: 8, color: '#64748b', alignment: 'center', textTransform: 'uppercase' },
+        statValue: { fontSize: 12, bold: true, color: '#0f172a', alignment: 'center' },
+        remarksHeader: { fontSize: 9, bold: true },
+        footer: { fontSize: 7, color: '#94a3b8', margin: [0, 5, 0, 0] },
+        legend: { fontSize: 7, color: '#64748b', alignment: 'center', italics: true }
+      },
+      // 📏 SMALLER DEFAULT FONT: Also crucial for fitting everything on 1 page
+      defaultStyle: { fontSize: 8 } 
+    };
+
+    return { dd, entries }; 
+
+  } catch (err) {
+    console.error('❌ buildStudentPdfDefinition error:', err);
+    throw err;
+  }
+}
+
 async function exportStudentResultsPDF(className, studentId, opts = {}, manualEntries = []) {
   try {
-    // Validation
     if (!className) return showToast('⚠️ Please select a class', 'error');
     if (!studentId) return showToast('⚠️ Enter a valid student ID', 'error');
 
-    showLoading('Preparing student PDF report...');
+    showLoading(`Generating Professional ${opts.category && opts.category !== 'All' ? opts.category : ''} Report...`);
 
-    // Generate PDF definition
-    const { dd, entries } = await buildStudentPdfDefinition(className, studentId, opts, manualEntries);
+    const { dd } = await buildStudentPdfDefinition(className, studentId, opts, manualEntries);
 
-    if (!dd || !dd.content) {
-      hideLoading();
-      showToast('⚠️ No valid content to print for this student', 'error');
-      return;
-    }
-
-    // Generate chart image if applicable
-    const chartImage = await generateChartImage(entries);
-    if (chartImage) {
-      // Replace placeholder with chart image
-      const placeholderIndex = dd.content.findIndex(item => item === '{{CHART_PLACEHOLDER}}');
-      if (placeholderIndex !== -1) {
-        dd.content[placeholderIndex] = {
-          image: chartImage,
-          width: 500,
-          alignment: 'center',
-          margin: [0, 10, 0, 10]
-        };
-      }
-    } else if (dd.content.includes('{{CHART_PLACEHOLDER}}')) {
-      // Remove placeholder if no chart
-      dd.content = dd.content.filter(item => item !== '{{CHART_PLACEHOLDER}}');
-    }
-
-    // Ensure pdfMake is loaded
     const pdfMake = await ensurePdfMake();
+    const pdfDocGenerator = pdfMake.createPdf(dd);
 
-    // Create and download PDF
-    pdfMake.createPdf(dd).download(`student_${studentId}_report.pdf`);
+    pdfDocGenerator.getBlob(async (blob) => {
+        const fileName = `${studentId}_Official_Report.pdf`;
+        const file = new File([blob], fileName, { type: 'application/pdf' });
 
-    hideLoading();
-    showToast('✅ Student PDF downloaded successfully', 'success');
+        hideLoading();
+
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            try {
+                await navigator.share({
+                    files: [file],
+                    title: 'Student Academic Report',
+                    text: `Official academic report for ${studentId} generated via TeachMate.`
+                });
+                showToast('✅ Report shared successfully', 'success');
+            } catch (e) {
+                console.log('Share cancelled, downloading instead.');
+                pdfDocGenerator.download(fileName);
+            }
+        } else {
+            pdfDocGenerator.download(fileName);
+            showToast('✅ Report downloaded successfully', 'success');
+        }
+    });
 
   } catch (err) {
     console.error('❌ exportStudentResultsPDF error:', err);
     hideLoading();
-    showToast('⚠️ Error generating student PDF: ' + (err.message || 'Unknown'), 'error');
+    showToast('⚠️ Error: ' + (err.message || 'Unknown'), 'error');
   }
 }
+
+
+
+
+
 
 // Enhanced export: use html2pdf for direct PDF download with iframe (kept as is for class report)
 async function exportResultsPDF(className, opts = {}) {
@@ -6391,7 +6445,7 @@ document.getElementById('logout-btn').addEventListener('click', async () => {
     if (typeof closeProfileModal === 'function') closeProfileModal();
 
     if (typeof hideAllSections === 'function') hideAllSections();
-    
+
     document.getElementById('email').value = '';
     document.getElementById('password').value = '';
     document.getElementById('auth-msg').textContent = '';
@@ -6478,7 +6532,7 @@ onAuthStateChanged(auth, async (user) => {
 
       if (typeof safeRestore_VB === 'function') safeRestore_VB(localProfile.schoolId);
       if (typeof syncData === 'function') syncData();
-      
+
       const queue = await getIndexedDB('syncQueue') || [];
       if (queue.length > 0 && typeof updateSyncStatus === 'function') {
         updateSyncStatus('Not Synced – pending', '#ff4e50');  
@@ -6525,12 +6579,12 @@ onAuthStateChanged(auth, async (user) => {
 
   } catch (error) {
     console.error('Auth state routing error:', error);
-    
+
     // 6. NETWORK FAILURE SAFETY NET
     // If we reach here, it means they have no local profile AND they couldn't reach Firestore.
     // DO NOT show the Profile Modal. Show the auth screen with an error.
     document.getElementById('auth-section').style.display = 'block';
-    
+
     if (authMsg) {
       authMsg.textContent = "Network error. Please connect to the internet to complete setup or log in on this device for the first time.";
     }
