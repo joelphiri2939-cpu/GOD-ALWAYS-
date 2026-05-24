@@ -1,167 +1,102 @@
 {
-  "name": "TEACHMATE PRO",
+  "name": "TeachMate Pro 3.0",
   "short_name": "TeachMate",
-  "id": "teachmate-app",
-  "description": "TeachMate is a smart school management app that helps teachers and headteachers manage classes, attendance, student performance, communication, and reports in real time.",
-  "start_url": "./index.html",
-  "scope": "/teachmate/",
+  "id": "/",
+  "description": "Smart school management — attendance, results, fees, and class management in real time.",
+  "start_url": "./index.html?source=pwa",
+  "scope": "./",
   "display": "standalone",
-  "display_override": ["window-controls-overlay", "fullscreen", "minimal-ui"],
-  "orientation": "portrait",
-  "theme_color": "#f5f6fa",
-  "background_color": "#ffffff",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "orientation": "portrait-primary",
+  "theme_color": "#00cc88",
+  "background_color": "#f0fdf8",
   "lang": "en",
   "dir": "ltr",
+
   "icons": [
     {
       "src": "icons/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
     },
     {
       "src": "icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ],
+
   "screenshots": [
     {
       "src": "screenshots/dashboard.png",
       "sizes": "1080x1920",
-      "type": "image/png"
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "TeachMate Dashboard"
     },
     {
       "src": "screenshots/class-selection.png",
       "sizes": "1080x1920",
-      "type": "image/png"
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Class Management"
     },
     {
       "src": "screenshots/data-view.png",
       "sizes": "1080x1920",
-      "type": "image/png"
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Student Data View"
     }
   ],
-  "categories": ["education"],
+
+  "categories": ["education", "productivity"],
+
   "shortcuts": [
     {
-      "name": "View Classes",
+      "name": "Attendance Register",
+      "short_name": "Attendance",
+      "description": "Quickly take today's attendance",
+      "url": "./index.html?section=attendance&source=shortcut",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Class Management",
       "short_name": "Classes",
-      "description": "Quick access to class management",
-      "url": "/teachmate/classes",
-      "icons": [
-        {
-          "src": "icons/icon-192.png",
-          "sizes": "192x192",
-          "type": "image/png"
-        }
-      ]
+      "description": "Manage your classes",
+      "url": "./index.html?section=class-management&source=shortcut",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
     },
     {
-      "name": "Add Student",
-      "short_name": "Add Student",
-      "description": "Quickly add a new student",
-      "url": "/teachmate/students",
-      "icons": [
-        {
-          "src": "icons/icon-192.png",
-          "sizes": "192x192",
-          "type": "image/png"
-        }
-      ]
-    },
-    {
-      "name": "View Dashboard",
-      "short_name": "Dashboard",
-      "description": "Quick access to headteacher dashboard",
-      "url": "/teachmate/index.html",
-      "icons": [
-        {
-          "src": "icons/icon-192.png",
-          "sizes": "192x192",
-          "type": "image/png"
-        }
-      ]
+      "name": "Results Tracking",
+      "short_name": "Results",
+      "description": "View and enter student results",
+      "url": "./index.html?section=results&source=shortcut",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
     }
   ],
-  "file_handlers": [
-    {
-      "action": "/teachmate/handle-file",
-      "accept": [
-        {
-          "type": "application/pdf"
-        }
-      ]
-    }
-  ],
+
+  "prefer_related_applications": false,
+
   "launch_handler": {
     "client_mode": "navigate-existing"
   },
-  "protocol_handlers": [
-    {
-      "protocol": "web+teachmate",
-      "title": "TeachMate Link",
-      "url": "/teachmate/open?url=%s"
-    }
-  ],
-  "prefer_related_applications": false,
-  "related_applications": [
-    {
-      "platform": "play",
-      "url": "https://play.google.com/store/apps/details?id=com.example.teachmate",
-      "id": "com.example.teachmate"
-    }
-  ],
-  "share_target": {
-    "action": "/teachmate/share",
-    "method": "POST",
-    "enctype": "multipart/form-data",
-    "params": {
-      "title": "title",
-      "text": "text",
-      "url": "url",
-      "files": [
-        {
-          "name": "sharedFiles",
-          "accept": [".pdf", "image/*"]
-        }
-      ]
-    }
-  },
-  "iarc_rating_id": "e84cda94-24dd-4a9a-908d-58302064f4b7",
-  "widgets": [
-    {
-      "name": "TeachMate Attendance Widget",
-      "short_name": "Attendance",
-      "description": "View daily attendance summary",
-      "tag": "attendance",
-      "ms_ac_template": "widgets/attendance.json",
-      "screenshots": [
-        {
-          "src": "screenshots/widget-screenshot.png",
-          "sizes": "400x300",
-          "type": "image/png"
-        }
-      ],
-      "icons": [
-        {
-          "src": "icons/icon-192.png",
-          "sizes": "192x192",
-          "type": "image/png"
-        }
-      ]
-    }
-  ],
+
   "edge_side_panel": {
     "preferred_width": 400
-  },
-  "note_taking": {
-    "new_note_url": "/teachmate/new-note"
-  },
-  "scope_extensions": [
-    {
-      "scopes": ["/teachmate/reports/", "/teachmate/dashboard/"]
-    }
-  ]
+  }
 }
