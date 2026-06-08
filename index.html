@@ -12958,9 +12958,18 @@ console.log("Fees module loaded successfully V2");
   'use strict';
 
   // ─── CONFIG ────────────────────────────────────────────────────────────────
-  const OR_KEY   = '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';
-  const OR_MODEL = 'openrouter/auto';        // auto-selects best available free model
+  const OR_KEY   = '   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   ';
+const FALLBACK_MODELS = [
+    "meta-llama/llama-3.1-8b-instruct:free",
+    "mistralai/mistral-7b-instruct:free",
+    "qwen/qwen-2.5-7b-instruct:free",
+    "nvidia/nemotron-3.5-content-safety:free",
+    "google/gemma-4-26b-a4b-it:free",
+    "qwen/qwen3-next-80b-a3b-instruct:free","openai/gpt-oss-120b:free","openai/gpt-oss-20b:free","openrouter/auto   "
+  ];
+  const MODEL_TIMEOUT_MS = 12000;
 
+  
   // ─── ZAMBIA CURRICULUM DATA ────────────────────────────────────────────────
   const LEVELS = [
     'ECE Level 1','ECE Level 2',
