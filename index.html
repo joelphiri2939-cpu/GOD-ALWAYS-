@@ -6206,57 +6206,9 @@ async function _silentRefresh() {
 }
 
 
-// ═══════════════════════════════════════════════════════════════════
-//  CLASS MANAGEMENT SECTION WIRING
-//  FIX 6: async timing — await dropdown fill before auto-loading
-// ═══════════════════════════════════════════════════════════════════
-function _cm2InitSection() {
-  _cm2PopulateClassDropdown().then(() => {
-    // FIX 6: now await is done, dropdown is filled
-    const classId = window._selectedClassId ||
-      localStorage.getItem('tm_selected_class');
-    if (classId) {
-      const sel = document.getElementById('cm2-class-select');
-      if (sel) sel.value = classId;
-      window.initPremiumClassDashboard(classId);
-    }
-  });
-}
 
-async function _cm2PopulateClassDropdown() {
-  const sel = document.getElementById('cm2-class-select');
-  if (!sel) return;
-  try {
-    let classes = _toArray(await getIndexedDB('classes').catch(()=>[]));
 
-    // Fallback to userProfile.classes
-    if (!classes.length && typeof auth !== 'undefined' && auth.currentUser) {
-      const profile = await getIndexedDB('userProfile', auth.currentUser.uid).catch(()=>null);
-      if (profile?.classes) classes = _toArray(profile.classes);
-    }
-    if (!classes.length) return;
 
-    // Normalize
-    classes = classes.map(cls =>
-      typeof cls === 'string' ? { id: cls, name: cls.replace(/_/g,' ') } : cls);
-    classes.sort((a,b)=>((a.displayName||a.name||a.id||'')).localeCompare((b.displayName||b.name||b.id||'')));
-
-    while (sel.options.length > 1) sel.remove(1);
-    classes.forEach(cls => {
-      const opt = document.createElement('option');
-      opt.value = cls.id || cls.classId || '';
-      opt.textContent = cls.displayName || cls.className || cls.name || opt.value;
-      sel.appendChild(opt);
-    });
-  } catch(e) { console.warn('[CM2] Dropdown:', e.message); }
-}
-
-window._cm2OnClassChange = function(classId) {
-  if (!classId) return;
-  window._selectedClassId = classId;
-  localStorage.setItem('tm_selected_class', classId);
-  window.initPremiumClassDashboard(classId);
-};
 
 // ═══════════════════════════════════════════════════════════════════
 //  CLEANUP
