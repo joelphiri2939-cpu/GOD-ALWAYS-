@@ -4616,14 +4616,20 @@ async function _runRestore(schoolId, teacherIdOverride) {
   console.log('[RestoreEngine] ✅ Restore complete.');
 }
 
-
 // ═══════════════════════════════════════════════════════════════════════════
 //  RESTORE A SINGLE COLLECTION (Fixed Path)
 // ═══════════════════════════════════════════════════════════════════════════
 async function _restoreCollection(coll, schoolId, teacherId, assignedClasses) {
 
+  // 🔥 THE FIX: If the teacher has no assigned classes, skip downloading data entirely.
+  // We also run _pruneLocal to ensure any old offline data is wiped out.
+  if (!assignedClasses || assignedClasses.length === 0) {
+    console.log(`[RestoreEngine] No assigned classes. Skipping and clearing local "${coll}".`);
+    await _pruneLocal(coll, []);
+    return;
+  }
+
   // 🛠️ FIX: Point to the school-level collection, matching your Firestore structure.
-  // The filtering logic below will ensure we only keep docs assigned to this teacher.
   const collRef = collection(fdb, 'schools', schoolId, coll);
 
   let snapshot;
@@ -4636,13 +4642,12 @@ async function _restoreCollection(coll, schoolId, teacherId, assignedClasses) {
 
   if (snapshot.empty) {
     console.log(`[RestoreEngine] "${coll}" is empty on server.`);
-    // Still clean up any orphaned local docs for this collection
     await _pruneLocal(coll, []);
     return;
   }
 
   const serverIds  = [];
-  const PHOTO_COLLS = new Set(['students']); // Photos stored locally only
+  const PHOTO_COLLS = new Set(['students']); 
 
   for (const d of snapshot.docs) {
     const docId     = d.id;
@@ -4650,27 +4655,23 @@ async function _restoreCollection(coll, schoolId, teacherId, assignedClasses) {
 
     // ── Filter 'classes' by assignment list ────────────────────────────
     if (coll === 'classes') {
-      if (assignedClasses.length > 0 && !assignedClasses.includes(docId)) {
-        // Not assigned to this teacher — skip
-        // Also remove from local if it was previously cached
+      if (!assignedClasses.includes(docId)) {
         await deleteIndexedDB(coll, docId).catch(() => {});
         continue;
       }
     }
 
     // ── Filter related data by classId field ───────────────────────────
-    // Students, attendance, results, fees all have a classId field.
-    // Only restore docs whose classId is in the teacher's assigned list.
-    if (coll !== 'classes' && assignedClasses.length > 0) {
+    if (coll !== 'classes') {
       const rawClassId = serverData.classId || serverData.originalClassId || '';
+      
       if (rawClassId) {
         const normalised = String(rawClassId).trim().replace(/\s+/g, '_');
         if (!assignedClasses.includes(normalised)) {
-          continue; // Not in this teacher's assigned classes
+          continue; 
         }
       }
-      // If doc has no classId (e.g. feesConfig keyed by classId as docId):
-      // feesConfig docId IS the classId — check it directly
+      
       if (!rawClassId && coll === 'feesConfig') {
         const normDocId = String(docId).trim().replace(/\s+/g, '_');
         if (!assignedClasses.includes(normDocId)) {
@@ -4681,7 +4682,6 @@ async function _restoreCollection(coll, schoolId, teacherId, assignedClasses) {
 
     serverIds.push(docId);
 
-    // Retrieve existing local copy (to preserve offline-only fields like photo)
     const localData = await getIndexedDB(coll, docId).catch(() => null);
 
     let dataToSave = {
@@ -4689,13 +4689,11 @@ async function _restoreCollection(coll, schoolId, teacherId, assignedClasses) {
       id: docId,
     };
 
-    // Normalise classId: spaces → underscores (self-healing)
     if (dataToSave.classId && typeof dataToSave.classId === 'string') {
       dataToSave.originalClassId = dataToSave.classId;
       dataToSave.classId         = dataToSave.classId.replace(/\s+/g, '_');
     }
 
-    // Preserve local photo — never stored in Firestore
     if (PHOTO_COLLS.has(coll) && localData?.photo) {
       dataToSave.photo = localData.photo;
     }
@@ -4710,57 +4708,6 @@ async function _restoreCollection(coll, schoolId, teacherId, assignedClasses) {
 
   console.log(`[RestoreEngine] ✔ "${coll}" — ${serverIds.length} doc(s) restored.`);
 }
-
-
-
-
-
-
-// ═══════════════════════════════════════════════════════════════════════════
-//  PRUNE LOCAL DOCS NOT ON SERVER
-// ═══════════════════════════════════════════════════════════════════════════
-async function _pruneLocal(coll, serverIds) {
-  try {
-    const localAll = await getIndexedDB(coll).catch(() => []);
-    if (!Array.isArray(localAll)) return;
-    for (const local of localAll) {
-      if (!local || local.id == null) continue;
-      if (!serverIds.includes(local.id)) {
-        await deleteIndexedDB(coll, local.id).catch(() => {});
-      }
-    }
-  } catch (e) {
-    console.warn(`[RestoreEngine] Prune failed for "${coll}":`, e.message);
-  }
-}
-
-
-// ═══════════════════════════════════════════════════════════════════════════
-//  RESET (called on logout by auth engine)
-// ═══════════════════════════════════════════════════════════════════════════
-// Fix ②: no onAuthStateChanged in this file.
-// The auth engine's logout handler already calls stopSchoolListener()
-// and clears IndexedDB. We just reset our own state here.
-
-window._resetRestoreEngine = function() {
-  isRestoring            = false;
-  restoreRetryCount      = 0;
-  restoreCollectionIndex = 0;
-
-  // Fix ⑦: properly re-initialise the promise so future awaiters don't hang
-  _classesReadyResolve   = null;
-  window.__classesReady  = new Promise(res => { _classesReadyResolve = res; });
-
-  console.log('[RestoreEngine] State reset.');
-};
-
-// ── Backward compat: auth engine checks these by name ────────────────────
-// (The auth engine has: if (typeof isRestoring !== 'undefined') isRestoring = false)
-// That pattern still works because isRestoring is a var in this module scope.
-
-console.log('[RestoreEngine] ✅ Production restore engine v2 loaded.');
-
-
 
 
 
