@@ -5006,41 +5006,36 @@ window.loadStudents = function() {
 
 
 
+
 // ═══════════════════════════════════════════════════════════════════
-//  TEACHMATE 3.0 — PREMIUM CLASS DASHBOARD & STUDENT MANAGEMENT
-//  Production v2 — Complete rewrite with all fixes + enhancements
+//  TEACHMATE 3.0 — PREMIUM CLASS DASHBOARD v3
+//  Drop-in replacement for the class management block.
 //
-//  BUGS FIXED:
-//  ① attendance: a.status==='present' → a.present===true
-//  ② fees: handles both payments[] array AND single fee.amount
-//  ③④⑤ studentId comparisons: all use normId() for consistency
-//  ⑥ realtime sync: correct Firestore path (teacher-level collections)
-//     filtered by classId, matching restore engine pattern
-//  ⑦–⑳ all missing features added (see enhancement list below)
+//  BUGS FIXED vs v2:
+//  ✅ FIX 1 — getIndexedDB('fees') array vs object: now handles both
+//  ✅ FIX 2 — Store name: tries 'attendance' AND 'attendanceHistory'
+//  ✅ FIX 3 — classId comparison uses RAW value, not sanitizeKey()
+//  ✅ FIX 4 — scores lookup: tries original key AND normId key
+//  ✅ FIX 5 — Realtime sync DISABLED by default (was wiping IndexedDB)
+//  ✅ FIX 6 — _cm2InitSection async timing fixed (awaits dropdown fill)
+//  ✅ FIX 7 — feesConfig lookup uses raw classId, not sanitized
+//  ✅ FIX 8 — Diagnostic console.log on every data load so you can see
+//             exactly what each store returns
 //
-//  ENHANCEMENTS:
-//  + Live search + multi-sort + pagination (20/page)
-//  + Per-student: attendance %, grade badge, fee status pill
-//  + Class health score (composite: attendance+grades+fees)
-//  + Performance ranking within class
-//  + Premium 4-tab modal: Profile / Results / Attendance / Fees
-//  + Each tab lazy-loads its data
-//  + Attendance heatmap dots + trend line
-//  + Results bar chart + grade distribution
-//  + Fees progress bar + payment history timeline
-//  + Export CSV from student list
-//  + Real-time update pulse indicator
-//  + Animated class switching (fade)
-//  + Initials avatar fallback (no broken images)
-//  + Smart empty states
-//  + Listener cleanup on class change
+//  UI ENHANCEMENTS:
+//  + Richer stat cards with gradient accent bars
+//  + Smoother modal open/close animation
+//  + Better empty states with action hints
+//  + Grade badge colours match Zambian CDC scale
+//  + Fee progress bar in student list row
+//  + Attendance mini-bar in student list row
 // ═══════════════════════════════════════════════════════════════════
 
 // ─── Module state ────────────────────────────────────────────────────
 const CM2 = {
   classId:          null,
-  allStudents:      [],   // filtered to current class, enriched
-  rawStudents:      [],   // same but without enrichment (for fast search)
+  rawClassId:       null,   // FIX 3: keep original, unsanitized classId
+  allStudents:      [],
   filteredStudents: [],
   currentPage:      1,
   pageSize:         20,
@@ -5055,9 +5050,9 @@ const CM2 = {
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────
-function normId(id)    { return String(id ?? '').trim().toLowerCase(); }
-function esc(s)        { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-
+function normId(id)  { return String(id ?? '').trim().toLowerCase(); }
+function esc(s)      { return String(s ?? '').replace(/[&<>"']/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 function getZambianGrade(score) {
   if (score >= 80) return { label:'1', desc:'Distinction', color:'#059669' };
@@ -5074,19 +5069,61 @@ function getZambianGrade(score) {
 function fmtDate(val) {
   if (!val) return '—';
   const d = new Date(val);
-  return isNaN(d) ? val : d.toLocaleDateString('en-ZM',
+  return isNaN(d) ? String(val) : d.toLocaleDateString('en-ZM',
     { day:'numeric', month:'short', year:'numeric' });
 }
 
-// Collect payment amount from either format
+// ── FIX 1: Extract fee amount from EITHER format ──────────────────
 function _extractFeeAmount(fee) {
-  if (Array.isArray(fee.payments)) {
-    return fee.payments.reduce((s, p) => s + (Number(p.amount)||0), 0);
-  }
+  if (Array.isArray(fee.payments))
+    return fee.payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
   return Number(fee.amount || fee.amountPaid || 0);
 }
 
-// Generate initials avatar as inline SVG data URI
+// ── FIX 1: Normalise any IndexedDB return into a flat array ───────
+function _toArray(data) {
+  if (!data) return [];
+  if (Array.isArray(data)) return data;
+  if (typeof data === 'object') return Object.values(data);
+  return [];
+}
+
+// ── FIX 2: Try multiple store names for attendance ─────────────────
+async function _getAttendance() {
+  let att = _toArray(await getIndexedDB('attendanceHistory').catch(() => null));
+  if (!att.length) {
+    att = _toArray(await getIndexedDB('attendance').catch(() => null));
+  }
+  // FIX 8: diagnostic
+  console.log(`[CM2] attendance records found: ${att.length}`,
+    att.length ? att[0] : '(empty)');
+  return att;
+}
+
+// ── FIX 1: Get fees as a guaranteed flat array ─────────────────────
+async function _getFees() {
+  const raw = await getIndexedDB('fees').catch(() => null);
+  const arr = _toArray(raw);
+  console.log(`[CM2] fees records found: ${arr.length}`,
+    arr.length ? arr[0] : '(empty)');
+  return arr;
+}
+
+// ── FIX 4: Find a score in a scores object with case-insensitive key
+function _findScore(scores, studentId, fallbackId) {
+  if (!scores) return undefined;
+  // Try exact key first
+  if (scores[studentId] !== undefined) return Number(scores[studentId]);
+  if (scores[fallbackId] !== undefined) return Number(scores[fallbackId]);
+  // Try normId version of every key
+  const normTarget = normId(studentId);
+  for (const k of Object.keys(scores)) {
+    if (normId(k) === normTarget) return Number(scores[k]);
+  }
+  return undefined;
+}
+
+// ── Initials avatar ───────────────────────────────────────────────
 function _initialsAvatar(name, size = 36) {
   const initials = (name||'?').split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase();
   const colors   = ['#059669','#2563eb','#d97706','#7c3aed','#dc2626','#0891b2'];
@@ -5101,7 +5138,6 @@ function _injectCM2Styles() {
   const s = document.createElement('style');
   s.id = '_cm2-styles';
   s.textContent = `
-  /* ── Root tokens ── */
   :root {
     --cm2-green:    #00cc88; --cm2-green-d: #00a86b; --cm2-green-lt: #e6faf3;
     --cm2-blue:     #2563eb; --cm2-blue-lt: #eff6ff;
@@ -5115,21 +5151,20 @@ function _injectCM2Styles() {
     --cm2-shadow-lg:0 20px 60px rgba(0,0,0,.12);
   }
 
-  /* ── Dashboard wrapper ── */
   #cm2-root { font-family:'DM Sans',system-ui,sans-serif; }
 
   /* ── Stat cards ── */
   .cm2-stat-grid {
     display:grid;
-    grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
-    gap:14px; margin-bottom:20px;
+    grid-template-columns:repeat(auto-fit,minmax(145px,1fr));
+    gap:12px; margin-bottom:20px;
   }
   .cm2-stat-card {
     background:var(--cm2-surface);
     border:1.5px solid var(--cm2-border);
     border-radius:var(--cm2-radius);
     padding:16px 18px;
-    display:flex; flex-direction:column; gap:6px;
+    display:flex; flex-direction:column; gap:5px;
     box-shadow:var(--cm2-shadow);
     transition:transform .2s, box-shadow .2s;
     position:relative; overflow:hidden;
@@ -5140,49 +5175,50 @@ function _injectCM2Styles() {
     background:var(--cm2-bar-color, var(--cm2-green));
     border-radius:3px 3px 0 0;
   }
-  .cm2-stat-card:hover { transform:translateY(-2px); box-shadow:var(--cm2-shadow-lg); }
-  .cm2-stat-icon  { font-size:1.4rem; }
-  .cm2-stat-label { font-size:.7rem; font-weight:700; text-transform:uppercase;
-                    letter-spacing:.8px; color:var(--cm2-muted); }
-  .cm2-stat-value { font-size:1.8rem; font-weight:900; line-height:1;
-                    color:var(--cm2-text); letter-spacing:-1px; }
-  .cm2-stat-sub   { font-size:.72rem; color:var(--cm2-muted); }
+  .cm2-stat-card::after {
+    content:''; position:absolute;
+    top:0;left:0;bottom:0;width:100%;
+    background:linear-gradient(135deg,
+      color-mix(in srgb,var(--cm2-bar-color,var(--cm2-green)) 6%,transparent),
+      transparent 60%);
+    pointer-events:none;
+  }
+  .cm2-stat-card:hover { transform:translateY(-3px); box-shadow:var(--cm2-shadow-lg); }
+  .cm2-stat-icon  { font-size:1.5rem; position:relative; z-index:1; }
+  .cm2-stat-label { font-size:.68rem; font-weight:800; text-transform:uppercase;
+                    letter-spacing:.9px; color:var(--cm2-muted); position:relative; z-index:1; }
+  .cm2-stat-value { font-size:1.9rem; font-weight:900; line-height:1;
+                    color:var(--cm2-text); letter-spacing:-1.5px;
+                    position:relative; z-index:1; }
+  .cm2-stat-sub   { font-size:.72rem; color:var(--cm2-muted); position:relative; z-index:1; }
 
-  /* ── Health score ring ── */
+  /* health ring */
   .cm2-health-ring { position:relative; display:inline-flex;
                      align-items:center; justify-content:center; }
   .cm2-health-ring svg { transform:rotate(-90deg); }
-  .cm2-health-label {
-    position:absolute; text-align:center;
-    font-size:.7rem; font-weight:800; color:var(--cm2-text);
-    line-height:1.2;
-  }
+  .cm2-health-label { position:absolute; text-align:center;
+    font-size:.7rem; font-weight:800; color:var(--cm2-text); line-height:1.2; }
 
   /* ── Toolbar ── */
-  .cm2-toolbar {
-    display:flex; gap:10px; margin-bottom:14px;
-    flex-wrap:wrap; align-items:center;
-  }
-  .cm2-search-wrap { flex:1; min-width:180px; position:relative; }
-  .cm2-search-wrap svg {
-    position:absolute; left:12px; top:50%;
-    transform:translateY(-50%); color:var(--cm2-muted);
-    width:16px; height:16px; pointer-events:none;
-  }
+  .cm2-toolbar { display:flex; gap:8px; margin-bottom:12px;
+    flex-wrap:wrap; align-items:center; }
+  .cm2-search-wrap { flex:1; min-width:160px; position:relative; }
+  .cm2-search-wrap svg { position:absolute; left:11px; top:50%;
+    transform:translateY(-50%); color:var(--cm2-muted); width:15px; height:15px; pointer-events:none; }
   .cm2-search {
-    width:100%; padding:10px 12px 10px 36px;
+    width:100%; padding:10px 12px 10px 34px;
     border:1.5px solid var(--cm2-border); border-radius:12px;
     font-size:.85rem; color:var(--cm2-text);
     background:var(--cm2-surface); outline:none;
-    font-family:inherit; transition:border-color .2s;
+    font-family:inherit; transition:border-color .2s, box-shadow .2s;
     box-sizing:border-box;
   }
-  .cm2-search:focus { border-color:var(--cm2-green); }
+  .cm2-search:focus { border-color:var(--cm2-green);
+    box-shadow:0 0 0 3px rgba(0,204,136,.12); }
   .cm2-sort-select {
     padding:10px 12px; border:1.5px solid var(--cm2-border);
     border-radius:12px; font-size:.82rem; color:var(--cm2-text);
-    background:var(--cm2-surface); outline:none; cursor:pointer;
-    font-family:inherit;
+    background:var(--cm2-surface); outline:none; cursor:pointer; font-family:inherit;
   }
   .cm2-export-btn {
     padding:10px 16px; border:1.5px solid var(--cm2-green);
@@ -5194,100 +5230,92 @@ function _injectCM2Styles() {
 
   /* ── Table ── */
   .cm2-table-wrap { overflow-x:auto; border-radius:var(--cm2-radius);
-                    border:1.5px solid var(--cm2-border);
-                    box-shadow:var(--cm2-shadow); }
-  .cm2-table { width:100%; border-collapse:collapse; font-size:.85rem; }
+    border:1.5px solid var(--cm2-border); box-shadow:var(--cm2-shadow); }
+  .cm2-table { width:100%; border-collapse:collapse; font-size:.84rem; }
   .cm2-table thead th {
-    padding:12px 14px; text-align:left;
-    font-size:.7rem; font-weight:800; text-transform:uppercase;
-    letter-spacing:.8px; color:var(--cm2-muted);
-    background:var(--cm2-bg);
+    padding:11px 13px; text-align:left;
+    font-size:.68rem; font-weight:800; text-transform:uppercase;
+    letter-spacing:.9px; color:var(--cm2-muted);
+    background:linear-gradient(180deg,#f0fdf8,#f8fffe);
     border-bottom:1.5px solid var(--cm2-border);
-    white-space:nowrap; cursor:pointer; user-select:none;
-    transition:color .15s;
+    white-space:nowrap; cursor:pointer; user-select:none; transition:color .15s;
   }
   .cm2-table thead th:hover  { color:var(--cm2-green-d); }
   .cm2-table thead th.sorted { color:var(--cm2-green-d); }
   .cm2-table tbody tr {
-    border-bottom:1px solid #f0fdf8;
-    cursor:pointer; transition:background .12s;
+    border-bottom:1px solid #f0fdf8; cursor:pointer; transition:background .1s;
   }
-  .cm2-table tbody tr:hover  { background:var(--cm2-green-lt); }
+  .cm2-table tbody tr:hover  { background:#f0fdf8; }
   .cm2-table tbody tr:last-child { border-bottom:none; }
-  .cm2-table tbody td { padding:12px 14px; vertical-align:middle; }
+  .cm2-table tbody td { padding:11px 13px; vertical-align:middle; }
 
   /* ── Avatar ── */
-  .cm2-avatar {
-    width:36px; height:36px; border-radius:50%;
-    object-fit:cover; border:2px solid var(--cm2-border);
-    flex-shrink:0;
-  }
+  .cm2-avatar { width:36px; height:36px; border-radius:50%;
+    object-fit:cover; border:2px solid var(--cm2-border); flex-shrink:0; }
   .cm2-name-cell { display:flex; align-items:center; gap:10px; }
   .cm2-student-name { font-weight:700; color:var(--cm2-text); }
-  .cm2-student-id   { font-size:.72rem; color:var(--cm2-muted);
-                      font-family:'DM Mono',monospace; margin-top:1px; }
+  .cm2-student-id   { font-size:.7rem; color:var(--cm2-muted);
+    font-family:'DM Mono',monospace; margin-top:1px; }
+
+  /* ── Mini progress (in table) ── */
+  .cm2-mini-bar { height:4px; background:#e5e7eb;
+    border-radius:3px; overflow:hidden; width:60px; margin-top:4px; }
+  .cm2-mini-fill { height:100%; border-radius:3px; }
 
   /* ── Pills ── */
-  .cm2-pill {
-    display:inline-flex; align-items:center; gap:4px;
-    padding:3px 10px; border-radius:20px;
-    font-size:.72rem; font-weight:700; white-space:nowrap;
-  }
-  .cm2-pill-green  { background:var(--cm2-green-lt); color:var(--cm2-green-d); }
-  .cm2-pill-blue   { background:var(--cm2-blue-lt);  color:var(--cm2-blue);   }
-  .cm2-pill-amber  { background:var(--cm2-amber-lt); color:var(--cm2-amber);  }
-  .cm2-pill-red    { background:var(--cm2-red-lt);   color:var(--cm2-red);    }
-  .cm2-pill-purple { background:var(--cm2-purple-lt);color:var(--cm2-purple); }
+  .cm2-pill { display:inline-flex; align-items:center; gap:3px;
+    padding:3px 9px; border-radius:20px;
+    font-size:.7rem; font-weight:700; white-space:nowrap; }
+  .cm2-pill-green  { background:var(--cm2-green-lt);  color:var(--cm2-green-d); }
+  .cm2-pill-blue   { background:var(--cm2-blue-lt);   color:var(--cm2-blue);   }
+  .cm2-pill-amber  { background:var(--cm2-amber-lt);  color:var(--cm2-amber);  }
+  .cm2-pill-red    { background:var(--cm2-red-lt);    color:var(--cm2-red);    }
+  .cm2-pill-purple { background:var(--cm2-purple-lt); color:var(--cm2-purple); }
 
   /* ── Pagination ── */
-  .cm2-pagination {
-    display:flex; align-items:center; justify-content:space-between;
-    padding:12px 4px; font-size:.82rem; color:var(--cm2-muted);
-    flex-wrap:wrap; gap:10px;
-  }
+  .cm2-pagination { display:flex; align-items:center;
+    justify-content:space-between; padding:12px 4px;
+    font-size:.82rem; color:var(--cm2-muted); flex-wrap:wrap; gap:10px; }
   .cm2-pages { display:flex; gap:4px; }
-  .cm2-pg-btn {
-    width:32px; height:32px; border-radius:8px;
-    border:1.5px solid var(--cm2-border);
-    background:var(--cm2-surface); color:var(--cm2-muted);
-    font-size:.8rem; font-weight:700; cursor:pointer;
-    display:flex; align-items:center; justify-content:center;
-    transition:all .15s;
-  }
+  .cm2-pg-btn { width:32px; height:32px; border-radius:8px;
+    border:1.5px solid var(--cm2-border); background:var(--cm2-surface);
+    color:var(--cm2-muted); font-size:.8rem; font-weight:700; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; transition:all .15s; }
   .cm2-pg-btn:hover   { border-color:var(--cm2-green); color:var(--cm2-green-d); }
-  .cm2-pg-btn.active  { background:var(--cm2-green); border-color:var(--cm2-green);
-                         color:#fff; }
+  .cm2-pg-btn.active  { background:var(--cm2-green);
+    border-color:var(--cm2-green); color:#fff; }
   .cm2-pg-btn:disabled{ opacity:.35; cursor:not-allowed; }
 
   /* ── Empty state ── */
-  .cm2-empty {
-    text-align:center; padding:48px 24px;
-    color:var(--cm2-muted);
-  }
-  .cm2-empty-icon { font-size:3rem; opacity:.35; margin-bottom:12px; }
+  .cm2-empty { text-align:center; padding:48px 24px; color:var(--cm2-muted); }
+  .cm2-empty-icon { font-size:2.8rem; opacity:.3; margin-bottom:12px; }
   .cm2-empty h3   { font-size:1rem; color:var(--cm2-text); font-weight:700;
-                    margin-bottom:6px; }
-  .cm2-empty p    { font-size:.85rem; max-width:280px; margin:0 auto; }
+    margin-bottom:6px; }
+  .cm2-empty p    { font-size:.85rem; max-width:280px; margin:0 auto; line-height:1.6; }
+
+  /* ── Diagnostic bar ── */
+  .cm2-diag-bar {
+    background:#fffbeb; border:1px solid #fcd34d;
+    border-radius:10px; padding:10px 14px; margin-bottom:14px;
+    font-size:.75rem; color:#92400e; font-family:'DM Mono',monospace;
+    display:none;
+  }
+  .cm2-diag-bar.show { display:block; }
 
   /* ── Update pulse ── */
-  .cm2-pulse {
-    display:inline-flex; align-items:center; gap:6px;
+  .cm2-pulse { display:inline-flex; align-items:center; gap:6px;
     font-size:.72rem; font-weight:700; color:var(--cm2-green-d);
-    opacity:0; transition:opacity .4s;
-  }
+    opacity:0; transition:opacity .4s; }
   .cm2-pulse.show { opacity:1; }
-  .cm2-pulse-dot {
-    width:7px; height:7px; border-radius:50%;
-    background:var(--cm2-green); animation:_cm2_pulse 1.4s infinite;
-  }
+  .cm2-pulse-dot { width:7px; height:7px; border-radius:50%;
+    background:var(--cm2-green); animation:_cm2_pulse 1.4s infinite; }
   @keyframes _cm2_pulse { 0%,100%{opacity:1;transform:scale(1)}
-                          50%{opacity:.4;transform:scale(.7)} }
+    50%{opacity:.4;transform:scale(.7)} }
 
   /* ── Progress bar ── */
-  .cm2-progress { height:6px; background:#e5e7eb;
-                  border-radius:4px; overflow:hidden; margin-top:4px; }
-  .cm2-progress-fill { height:100%; border-radius:4px;
-                       transition:width .6s ease; }
+  .cm2-progress { height:7px; background:#e5e7eb;
+    border-radius:4px; overflow:hidden; margin-top:4px; }
+  .cm2-progress-fill { height:100%; border-radius:4px; transition:width .6s ease; }
 
   /* ── Attendance dots ── */
   .cm2-att-dots { display:flex; flex-wrap:wrap; gap:3px; margin-top:6px; }
@@ -5298,57 +5326,47 @@ function _injectCM2Styles() {
 
   /* ── Bar chart ── */
   .cm2-bar-row { display:flex; align-items:center; gap:10px;
-                 margin-bottom:8px; font-size:.8rem; }
-  .cm2-bar-label { width:120px; color:var(--cm2-muted); flex-shrink:0;
-                   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    margin-bottom:8px; font-size:.8rem; }
+  .cm2-bar-label { width:110px; color:var(--cm2-muted); flex-shrink:0;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .cm2-bar-track { flex:1; height:8px; background:#e5e7eb;
-                   border-radius:4px; overflow:hidden; }
+    border-radius:4px; overflow:hidden; }
   .cm2-bar-fill  { height:100%; border-radius:4px; transition:width .6s ease; }
   .cm2-bar-val   { width:42px; text-align:right; font-weight:700;
-                   font-family:'DM Mono',monospace; font-size:.78rem;
-                   flex-shrink:0; }
+    font-family:'DM Mono',monospace; font-size:.78rem; flex-shrink:0; }
 
   /* ── MODAL ── */
   .cm2-modal-overlay {
     position:fixed; inset:0; z-index:9100;
-    background:rgba(15,23,42,.55);
-    backdrop-filter:blur(10px);
+    background:rgba(15,23,42,.6);
+    backdrop-filter:blur(12px);
     display:flex; align-items:center; justify-content:center;
-    padding:16px; opacity:0; transition:opacity .25s;
+    padding:16px; opacity:0; transition:opacity .22s;
+    pointer-events:none;
   }
-  .cm2-modal-overlay.open { opacity:1; }
+  .cm2-modal-overlay.open { opacity:1; pointer-events:all; }
   .cm2-modal {
     background:var(--cm2-surface);
-    border-radius:28px; width:100%; max-width:600px;
-    max-height:92vh; display:flex; flex-direction:column;
-    box-shadow:var(--cm2-shadow-lg);
-    transform:translateY(24px) scale(.97);
-    transition:transform .25s, opacity .25s;
+    border-radius:24px; width:100%; max-width:580px;
+    max-height:90dvh; display:flex; flex-direction:column;
+    box-shadow:0 32px 80px rgba(0,0,0,.18);
+    transform:translateY(20px) scale(.97);
+    transition:transform .22s cubic-bezier(.16,1,.3,1);
     overflow:hidden;
   }
-  .cm2-modal-overlay.open .cm2-modal {
-    transform:translateY(0) scale(1);
-  }
+  .cm2-modal-overlay.open .cm2-modal { transform:none; }
   .cm2-modal-header {
-    background:linear-gradient(135deg,#00cc88,#00a86b);
-    padding:20px 24px 0;
-    flex-shrink:0;
+    background:linear-gradient(135deg,#00cc88 0%,#00a86b 60%,#0891b2 100%);
+    padding:18px 20px 0; flex-shrink:0;
   }
-  .cm2-modal-hero {
-    display:flex; align-items:center; gap:14px; margin-bottom:16px;
-  }
-  .cm2-modal-avatar {
-    width:64px; height:64px; border-radius:50%;
-    object-fit:cover; border:3px solid rgba(255,255,255,.4);
-    flex-shrink:0;
-  }
-  .cm2-modal-name  { font-size:1.25rem; font-weight:800; color:#fff;
-                     letter-spacing:-.3px; }
-  .cm2-modal-meta  { display:flex; gap:8px; flex-wrap:wrap; margin-top:4px; }
+  .cm2-modal-hero { display:flex; align-items:center; gap:12px; margin-bottom:14px; }
+  .cm2-modal-avatar { width:60px; height:60px; border-radius:50%;
+    object-fit:cover; border:3px solid rgba(255,255,255,.4); flex-shrink:0; }
+  .cm2-modal-name  { font-size:1.2rem; font-weight:800; color:#fff; letter-spacing:-.3px; }
+  .cm2-modal-meta  { display:flex; gap:6px; flex-wrap:wrap; margin-top:4px; }
   .cm2-modal-meta span {
     background:rgba(255,255,255,.2); color:#fff;
-    padding:2px 10px; border-radius:20px;
-    font-size:.72rem; font-weight:700;
+    padding:2px 9px; border-radius:20px; font-size:.7rem; font-weight:700;
   }
   .cm2-modal-close {
     margin-left:auto; background:rgba(255,255,255,.2);
@@ -5358,69 +5376,60 @@ function _injectCM2Styles() {
     transition:background .15s; flex-shrink:0;
   }
   .cm2-modal-close:hover { background:rgba(255,255,255,.35); }
-  .cm2-modal-tabs {
-    display:flex; gap:0; overflow-x:auto; scrollbar-width:none;
-  }
+  .cm2-modal-tabs { display:flex; gap:0; overflow-x:auto; scrollbar-width:none; }
   .cm2-modal-tabs::-webkit-scrollbar { display:none; }
   .cm2-modal-tab {
-    flex:1; padding:10px 12px; min-width:80px;
-    border:none; border-bottom:2px solid transparent;
-    background:transparent; color:rgba(255,255,255,.65);
-    font-size:.8rem; font-weight:700; cursor:pointer;
+    flex:1; padding:9px 10px; min-width:76px;
+    border:none; border-bottom:2.5px solid transparent;
+    background:transparent; color:rgba(255,255,255,.6);
+    font-size:.78rem; font-weight:700; cursor:pointer;
     white-space:nowrap; transition:all .15s; text-align:center;
   }
-  .cm2-modal-tab.active {
-    color:#fff; border-bottom-color:#fff;
-  }
+  .cm2-modal-tab.active { color:#fff; border-bottom-color:#fff; }
   .cm2-modal-body {
-    flex:1; overflow-y:auto; padding:20px 24px;
+    flex:1; overflow-y:auto; padding:18px 20px;
     scrollbar-width:thin; scrollbar-color:var(--cm2-border) transparent;
   }
   .cm2-modal-body::-webkit-scrollbar { width:4px; }
   .cm2-modal-body::-webkit-scrollbar-thumb { background:var(--cm2-border); border-radius:2px; }
-  .cm2-tab-panel { display:none; }
+  .cm2-tab-panel { display:none; animation:cm2FadeIn .18s ease; }
   .cm2-tab-panel.active { display:block; }
+  @keyframes cm2FadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:none} }
 
   /* ── Profile fields ── */
-  .cm2-field-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-  .cm2-field label { font-size:.7rem; font-weight:800;
-                     text-transform:uppercase; letter-spacing:.8px;
-                     color:var(--cm2-muted); display:block; margin-bottom:4px; }
-  .cm2-field .val  {
-    font-size:.9rem; font-weight:600; color:var(--cm2-text);
+  .cm2-field-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .cm2-field label { font-size:.68rem; font-weight:800; text-transform:uppercase;
+    letter-spacing:.9px; color:var(--cm2-muted); display:block; margin-bottom:4px; }
+  .cm2-field .val  { font-size:.88rem; font-weight:600; color:var(--cm2-text);
     background:var(--cm2-bg); border:1.5px solid var(--cm2-border);
-    border-radius:10px; padding:9px 12px;
-  }
-  .cm2-divider { height:1px; background:var(--cm2-border); margin:14px 0; }
+    border-radius:10px; padding:8px 11px; }
+  .cm2-divider { height:1px; background:var(--cm2-border); margin:13px 0; }
 
   /* ── History row ── */
   .cm2-hist-row {
-    display:flex; align-items:center; gap:12px;
-    padding:10px 12px; border-radius:10px;
+    display:flex; align-items:center; gap:11px;
+    padding:9px 11px; border-radius:10px;
     border:1.5px solid var(--cm2-border);
-    margin-bottom:8px; transition:background .12s;
+    margin-bottom:7px; transition:background .12s;
   }
   .cm2-hist-row:hover { background:var(--cm2-bg); }
-  .cm2-hist-icon {
-    width:32px; height:32px; border-radius:8px;
+  .cm2-hist-icon { width:32px; height:32px; border-radius:8px;
     display:flex; align-items:center; justify-content:center;
-    font-size:.9rem; flex-shrink:0;
-  }
+    font-size:.9rem; flex-shrink:0; }
   .cm2-hist-main { flex:1; }
-  .cm2-hist-title { font-weight:700; font-size:.85rem; color:var(--cm2-text); }
-  .cm2-hist-sub   { font-size:.72rem; color:var(--cm2-muted); margin-top:2px; }
+  .cm2-hist-title { font-weight:700; font-size:.83rem; color:var(--cm2-text); }
+  .cm2-hist-sub   { font-size:.7rem; color:var(--cm2-muted); margin-top:2px; }
   .cm2-hist-right { text-align:right; flex-shrink:0; }
-  .cm2-hist-val   { font-weight:700; font-size:.85rem; }
-  .cm2-hist-date  { font-size:.7rem; color:var(--cm2-muted); }
-
-  /* ── Ranking badge ── */
-  .cm2-rank { font-size:1.2rem; }
+  .cm2-hist-val   { font-weight:700; font-size:.83rem; }
+  .cm2-hist-date  { font-size:.68rem; color:var(--cm2-muted); }
 
   /* ── Responsive ── */
-  @media(max-width:600px){
-    .cm2-field-grid { grid-template-columns:1fr; }
-    .cm2-modal-hero { flex-wrap:wrap; }
-    .cm2-stat-grid  { grid-template-columns:1fr 1fr; }
+  @media(max-width:560px){
+    .cm2-field-grid   { grid-template-columns:1fr; }
+    .cm2-modal-hero   { flex-wrap:wrap; }
+    .cm2-stat-grid    { grid-template-columns:1fr 1fr; }
+    .cm2-modal        { border-radius:20px 20px 0 0; }
+    .cm2-modal-overlay{ align-items:flex-end; padding:0; }
   }
   `;
   document.head.appendChild(s);
@@ -5428,25 +5437,29 @@ function _injectCM2Styles() {
 
 
 // ═══════════════════════════════════════════════════════════════════
-//  INIT — call after IndexedDB is ready and class is selected
+//  INIT
 // ═══════════════════════════════════════════════════════════════════
 window.initPremiumClassDashboard = async function(classId) {
+  if (!classId) return;
   _injectCM2Styles();
-  CM2.classId    = sanitizeKey(classId);
+
+  // FIX 3: store RAW classId, no sanitizeKey
+  CM2.rawClassId  = classId;
+  CM2.classId     = classId;
   CM2.currentPage = 1;
   CM2.searchQuery = '';
 
-  // Animate out old content
+  // Animate out
   const root = document.getElementById('cm2-root');
-  if (root) { root.style.opacity = '0'; root.style.transition = 'opacity .2s'; }
+  if (root) { root.style.opacity='0'; root.style.transition='opacity .18s'; }
 
   await _loadAndEnrichStudents();
   _buildDashboard();
 
-  if (root) { root.style.opacity = '1'; }
-
-  // Start realtime sync
-  await _initRealtimeSync(classId);
+  if (root) { root.style.opacity='1'; }
+  // FIX 5: realtime sync disabled — it was wiping IndexedDB with empty docs
+  // Re-enable only after confirming your Firestore paths match the sync engine.
+  // await _initRealtimeSync(classId);
 };
 
 
@@ -5454,67 +5467,81 @@ window.initPremiumClassDashboard = async function(classId) {
 //  DATA LOADING + ENRICHMENT
 // ═══════════════════════════════════════════════════════════════════
 async function _loadAndEnrichStudents() {
-  const cid = CM2.classId;
+  // FIX 3: use rawClassId for ALL comparisons
+  const cid = CM2.rawClassId;
 
-  const [rawStudents, attendance, fees, results, feesConfig] = await Promise.all([
-    getIndexedDB('students').then(r => (r||[]).filter(s => s.classId === cid)),
-    // FIX ①: use a.present === true (boolean), not a.status
-    getIndexedDB('attendanceHistory').then(r => (r||[]).filter(a => a.classId === cid)),
-    getIndexedDB('fees').then(r => (r||[]).filter(f => f.classId === cid)),
-    getIndexedDB('results').then(r => (r||[]).filter(r2 => r2.classId === cid)),
+  // FIX 8: log what classId we're searching for
+  console.log('[CM2] Loading data for classId:', JSON.stringify(cid));
+
+  const [allStudentsRaw, attendance, fees, results, feesConfig] = await Promise.all([
+    getIndexedDB('students').catch(() => []),
+    _getAttendance(),
+    _getFees(),
+    getIndexedDB('results').catch(() => []).then(_toArray),
+    // FIX 7: use raw classId for feesConfig lookup
     getIndexedDB('feesConfig', cid).catch(() => null),
   ]);
 
-  const totalFeePerStudent = feesConfig?.totalFee || 0;
+  // FIX 3: compare classId as-is (no sanitizeKey, no normId)
+  const rawStudents = _toArray(allStudentsRaw).filter(s => s.classId === cid);
 
-  // Enrich each student with computed metrics
+  // FIX 8: diagnostic
+  console.log(`[CM2] students in class: ${rawStudents.length}`,
+    rawStudents.slice(0,2));
+  console.log(`[CM2] attendance records for class: ${attendance.filter(a=>a.classId===cid).length}`);
+  console.log(`[CM2] fees records for class: ${fees.filter(f=>f.classId===cid).length}`);
+  console.log(`[CM2] results records for class: ${results.filter(r=>r.classId===cid).length}`);
+  console.log('[CM2] feesConfig:', feesConfig);
+
+  const classAtt     = attendance.filter(a => a.classId === cid);
+  const classFees    = fees.filter(f => f.classId === cid);
+  const classResults = results.filter(r => r.classId === cid);
+  const totalFee     = feesConfig?.totalFee || feesConfig?.totalAmount || 0;
+
   CM2.allStudents = rawStudents.map(student => {
-    // FIX ③: use normId for all comparisons
-    const sid = normId(student.studentId || student.id);
+    const origId = student.studentId || student.id || '';
+    const sid    = normId(origId);
 
-    // Attendance
-    const sAtt     = attendance.filter(a => normId(a.studentId) === sid);
-    // FIX ①: a.present === true
+    // Attendance — FIX 1: a.present === true
+    const sAtt     = classAtt.filter(a => normId(a.studentId) === sid);
     const sPresent = sAtt.filter(a => a.present === true).length;
     const sAttPct  = sAtt.length ? Math.round((sPresent / sAtt.length) * 100) : null;
 
-    // Results
+    // Results — FIX 4: case-insensitive key lookup
     let scoreSum = 0, scoreCount = 0;
-    results.forEach(r => {
-      // FIX ⑤: use normId to look up in scores object
-      const score = r.scores?.[sid] ?? r.scores?.[student.studentId];
-      if (score !== undefined) { scoreSum += Number(score); scoreCount++; }
+    classResults.forEach(r => {
+      const score = _findScore(r.scores, origId, sid);
+      if (score !== undefined && !isNaN(score)) { scoreSum += score; scoreCount++; }
     });
     const avgScore = scoreCount ? Math.round(scoreSum / scoreCount) : null;
 
-    // Fees — FIX ②: handle both payments[] array and single amount
-    const sFeeRecs = fees.filter(f => normId(f.studentId || f.id) === sid);
-    const sPaid    = sFeeRecs.reduce((sum, f) => sum + _extractFeeAmount(f), 0);
-    const feeStatus = totalFeePerStudent === 0 ? 'na'
-      : sPaid >= totalFeePerStudent ? 'paid'
+    // Fees — FIX 1 & FIX 2: handle both formats
+    const sFeeRecs = classFees.filter(f =>
+      normId(f.studentId || f.id) === sid);
+    const sPaid = sFeeRecs.reduce((sum, f) => sum + _extractFeeAmount(f), 0);
+    const feeStatus = totalFee === 0 ? 'na'
+      : sPaid >= totalFee ? 'paid'
       : sPaid > 0 ? 'partial' : 'unpaid';
 
     return {
       ...student,
-      _sid:       sid,
-      _attPct:    sAttPct,
-      _avgScore:  avgScore,
-      _feeStatus: feeStatus,
-      _paid:      sPaid,
-      _totalFee:  totalFeePerStudent,
+      _sid: sid, _origId: origId,
+      _attPct: sAttPct, _avgScore: avgScore,
+      _feeStatus: feeStatus, _paid: sPaid, _totalFee: totalFee,
     };
   });
 
-  // Compute class-level metrics
-  CM2._classAtt    = attendance;
-  CM2._classFees   = fees;
-  CM2._classResults = results;
-  CM2._feesConfig  = feesConfig;
+  // Store class-level data for modal tabs
+  CM2._classAtt     = classAtt;
+  CM2._classFees    = classFees;
+  CM2._classResults = classResults;
+  CM2._feesConfig   = feesConfig;
+  CM2._totalFee     = totalFee;
 
   // Performance ranking
   const ranked = [...CM2.allStudents]
     .filter(s => s._avgScore !== null)
-    .sort((a,b) => b._avgScore - a._avgScore);
+    .sort((a, b) => b._avgScore - a._avgScore);
   CM2.allStudents = CM2.allStudents.map(s => ({
     ...s,
     _rank: ranked.findIndex(r => r._sid === s._sid) + 1 || null,
@@ -5532,16 +5559,25 @@ function _buildDashboard() {
   const root = document.getElementById('cm2-root');
   if (!root) return;
 
+  // Show diagnostic bar if all stats are null (helps you spot the bug)
+  const hasAny = CM2.allStudents.some(s =>
+    s._attPct !== null || s._avgScore !== null || s._feeStatus !== 'na');
+  const diagMsg = !CM2.allStudents.length
+    ? `⚠️ No students found for classId="${CM2.rawClassId}". Check that students are stored with this exact classId.`
+    : !hasAny
+    ? `⚠️ Students found (${CM2.allStudents.length}) but attendance/results/fees all empty. Check store names in console.`
+    : '';
+
   root.innerHTML = `
+    ${diagMsg ? `<div class="cm2-diag-bar show">${esc(diagMsg)}</div>` : ''}
     ${_buildStatCards()}
     <div style="display:flex;align-items:center;justify-content:space-between;
-      margin-bottom:6px;flex-wrap:wrap;gap:8px;">
+      margin-bottom:8px;flex-wrap:wrap;gap:8px;">
       <div style="font-size:.75rem;font-weight:700;color:var(--cm2-muted);">
-        ${CM2.allStudents.length} students in this class
+        ${CM2.allStudents.length} student${CM2.allStudents.length !== 1 ? 's' : ''} enrolled
       </div>
       <div class="cm2-pulse" id="cm2-update-pulse">
-        <div class="cm2-pulse-dot"></div>
-        Updated just now
+        <div class="cm2-pulse-dot"></div> Updated just now
       </div>
     </div>
     <div class="cm2-toolbar">
@@ -5551,8 +5587,7 @@ function _buildDashboard() {
         </svg>
         <input class="cm2-search" id="cm2-search"
           placeholder="Search by name or ID…"
-          oninput="window._cm2Search(this.value)"
-          autocomplete="off">
+          oninput="window._cm2Search(this.value)" autocomplete="off">
       </div>
       <select class="cm2-sort-select" id="cm2-sort"
         onchange="window._cm2Sort(this.value)">
@@ -5563,15 +5598,13 @@ function _buildDashboard() {
         <option value="grade-desc">Grade Best→Worst</option>
         <option value="fee-asc">Fees: Unpaid first</option>
       </select>
-      <button class="cm2-export-btn" onclick="window._cm2ExportCSV()">
-        ⬇ CSV
-      </button>
+      <button class="cm2-export-btn" onclick="window._cm2ExportCSV()">⬇ CSV</button>
     </div>
     <div class="cm2-table-wrap">
       <table class="cm2-table" id="cm2-table">
         <thead>
           <tr>
-            <th onclick="window._cm2SortCol('name')" id="th-name">Student ↕</th>
+            <th onclick="window._cm2SortCol('name')">Student ↕</th>
             <th onclick="window._cm2SortCol('att')">Attendance</th>
             <th onclick="window._cm2SortCol('grade')">Avg Grade</th>
             <th onclick="window._cm2SortCol('fee')">Fees</th>
@@ -5590,13 +5623,13 @@ function _buildDashboard() {
         <div class="cm2-modal-header">
           <div class="cm2-modal-hero">
             <img class="cm2-modal-avatar" id="cm2-modal-avatar" src="" alt="">
-            <div style="flex:1;">
+            <div style="flex:1;min-width:0;">
               <div class="cm2-modal-name" id="cm2-modal-name"></div>
               <div class="cm2-modal-meta" id="cm2-modal-meta"></div>
             </div>
             <button class="cm2-modal-close" onclick="window.closeCM2Modal()">✕</button>
           </div>
-          <div class="cm2-modal-tabs" id="cm2-modal-tabs">
+          <div class="cm2-modal-tabs">
             <button class="cm2-modal-tab active" data-tab="profile"
               onclick="window._cm2SwitchTab('profile',this)">👤 Profile</button>
             <button class="cm2-modal-tab" data-tab="results"
@@ -5607,7 +5640,7 @@ function _buildDashboard() {
               onclick="window._cm2SwitchTab('fees',this)">💰 Fees</button>
           </div>
         </div>
-        <div class="cm2-modal-body" id="cm2-modal-body">
+        <div class="cm2-modal-body">
           <div class="cm2-tab-panel active" id="cm2-panel-profile"></div>
           <div class="cm2-tab-panel" id="cm2-panel-results"></div>
           <div class="cm2-tab-panel" id="cm2-panel-attendance"></div>
@@ -5622,59 +5655,59 @@ function _buildDashboard() {
 
 
 // ═══════════════════════════════════════════════════════════════════
-//  STAT CARDS + HEALTH SCORE
+//  STAT CARDS
 // ═══════════════════════════════════════════════════════════════════
 function _buildStatCards() {
   const students = CM2.allStudents;
   const att      = CM2._classAtt    || [];
   const fees     = CM2._classFees   || [];
   const results  = CM2._classResults || [];
-  const feeCfg   = CM2._feesConfig;
+  const totalFee = CM2._totalFee    || 0;
 
   const totalStudents = students.length;
 
-  // Overall attendance — FIX ①: a.present === true
+  // Attendance
   const attPct = att.length
     ? Math.round((att.filter(a => a.present === true).length / att.length) * 100)
     : null;
 
-  // Overall avg score
+  // Avg score — FIX 4 already applied in enrichment
   let scoreSum = 0, scoreCount = 0;
-  results.forEach(r => {
-    Object.values(r.scores || {}).forEach(s => { scoreSum += Number(s); scoreCount++; });
+  students.forEach(s => {
+    if (s._avgScore !== null) { scoreSum += s._avgScore; scoreCount++; }
   });
   const avgScore = scoreCount ? Math.round(scoreSum / scoreCount) : null;
   const grade    = avgScore !== null ? getZambianGrade(avgScore) : null;
 
-  // Overall fees — FIX ②
+  // Fees
   const totalCollected = fees.reduce((s, f) => s + _extractFeeAmount(f), 0);
-  const totalExpected  = (feeCfg?.totalFee || 0) * totalStudents;
+  const totalExpected  = totalFee * totalStudents;
   const feesPct        = totalExpected ? Math.round((totalCollected / totalExpected) * 100) : null;
   const outstanding    = Math.max(0, totalExpected - totalCollected);
 
-  // CLASS HEALTH SCORE (0–100, composite)
-  const healthComponents = [];
-  if (attPct  !== null) healthComponents.push(attPct);
-  if (avgScore !== null) healthComponents.push(avgScore);
-  if (feesPct  !== null) healthComponents.push(feesPct);
-  const healthScore = healthComponents.length
-    ? Math.round(healthComponents.reduce((a,b) => a+b, 0) / healthComponents.length)
-    : null;
+  // Health score
+  const hc = [];
+  if (attPct  !== null) hc.push(attPct);
+  if (avgScore !== null) hc.push(avgScore);
+  if (feesPct  !== null) hc.push(feesPct);
+  const healthScore = hc.length ? Math.round(hc.reduce((a,b)=>a+b,0)/hc.length) : null;
   const healthColor = healthScore === null ? '#94a3b8'
     : healthScore >= 75 ? '#059669'
     : healthScore >= 50 ? '#d97706' : '#dc2626';
 
+  const _attColor  = attPct  === null ? '#94a3b8' : attPct  >= 80 ? '#059669' : attPct  >= 60 ? '#d97706' : '#dc2626';
+  const _feeColor  = feesPct === null ? '#94a3b8' : feesPct >= 80 ? '#059669' : feesPct >= 50 ? '#d97706' : '#dc2626';
+
   const ring = healthScore !== null ? `
-    <div class="cm2-health-ring" style="width:56px;height:56px;">
-      <svg width="56" height="56" viewBox="0 0 56 56">
-        <circle cx="28" cy="28" r="22" fill="none" stroke="#e5e7eb" stroke-width="5"/>
-        <circle cx="28" cy="28" r="22" fill="none" stroke="${healthColor}" stroke-width="5"
-          stroke-dasharray="${Math.round(2*Math.PI*22*healthScore/100)} ${Math.round(2*Math.PI*22)}"
+    <div class="cm2-health-ring" style="width:52px;height:52px;">
+      <svg width="52" height="52" viewBox="0 0 52 52">
+        <circle cx="26" cy="26" r="20" fill="none" stroke="#e5e7eb" stroke-width="5"/>
+        <circle cx="26" cy="26" r="20" fill="none" stroke="${healthColor}" stroke-width="5"
+          stroke-dasharray="${Math.round(2*Math.PI*20*healthScore/100)} 200"
           stroke-linecap="round"/>
       </svg>
       <div class="cm2-health-label" style="color:${healthColor};">
-        <div style="font-size:.65rem;">${healthScore}</div>
-        <div style="font-size:.5rem;color:#94a3b8;">HEALTH</div>
+        <div style="font-size:.62rem;font-weight:900;">${healthScore}</div>
       </div>
     </div>` : '';
 
@@ -5686,13 +5719,16 @@ function _buildStatCards() {
       <div class="cm2-stat-value">${totalStudents}</div>
       <div class="cm2-stat-sub">enrolled in class</div>
     </div>
-    <div class="cm2-stat-card" style="--cm2-bar-color:${attPct===null?'#94a3b8':attPct>=80?'#059669':attPct>=60?'#d97706':'#dc2626'};">
+    <div class="cm2-stat-card" style="--cm2-bar-color:${_attColor};">
       <div class="cm2-stat-icon">📅</div>
       <div class="cm2-stat-label">Attendance</div>
-      <div class="cm2-stat-value" style="color:${attPct===null?'#94a3b8':attPct>=80?'#059669':attPct>=60?'#d97706':'#dc2626'}">
+      <div class="cm2-stat-value" style="color:${_attColor}">
         ${attPct !== null ? attPct + '%' : '—'}
       </div>
-      <div class="cm2-stat-sub">${attPct===null?'No data yet':attPct>=80?'Excellent':attPct>=60?'Average':'Needs attention'}</div>
+      <div class="cm2-stat-sub">${attPct===null?'No records':attPct>=80?'Excellent':attPct>=60?'Average':'Needs attention'}</div>
+      ${attPct !== null ? `<div class="cm2-progress" style="margin-top:6px;">
+        <div class="cm2-progress-fill" style="width:${attPct}%;background:${_attColor};"></div>
+      </div>` : ''}
     </div>
     <div class="cm2-stat-card" style="--cm2-bar-color:${grade?grade.color:'#94a3b8'};">
       <div class="cm2-stat-icon">📊</div>
@@ -5702,21 +5738,24 @@ function _buildStatCards() {
       </div>
       <div class="cm2-stat-sub">${avgScore !== null ? grade.desc + ' · ' + avgScore + '%' : 'No results yet'}</div>
     </div>
-    <div class="cm2-stat-card" style="--cm2-bar-color:${feesPct===null?'#94a3b8':feesPct>=80?'#059669':feesPct>=50?'#d97706':'#dc2626'};">
+    <div class="cm2-stat-card" style="--cm2-bar-color:${_feeColor};">
       <div class="cm2-stat-icon">💰</div>
       <div class="cm2-stat-label">Fees Collected</div>
-      <div class="cm2-stat-value" style="font-size:1.3rem;color:${feesPct===null?'#94a3b8':feesPct>=80?'#059669':'#dc2626'}">
+      <div class="cm2-stat-value" style="font-size:1.4rem;color:${_feeColor}">
         ${feesPct !== null ? feesPct + '%' : '—'}
       </div>
       <div class="cm2-stat-sub">K${outstanding.toLocaleString()} outstanding</div>
+      ${feesPct !== null ? `<div class="cm2-progress" style="margin-top:6px;">
+        <div class="cm2-progress-fill" style="width:${Math.min(100,feesPct)}%;background:${_feeColor};"></div>
+      </div>` : ''}
     </div>
     ${healthScore !== null ? `
     <div class="cm2-stat-card" style="--cm2-bar-color:${healthColor};">
-      <div style="display:flex;align-items:center;gap:10px;">
+      <div style="display:flex;align-items:center;gap:10px;position:relative;z-index:1;">
         ${ring}
         <div>
           <div class="cm2-stat-label">Class Health</div>
-          <div class="cm2-stat-value" style="font-size:1.5rem;color:${healthColor}">${healthScore}</div>
+          <div class="cm2-stat-value" style="font-size:1.5rem;color:${healthColor};">${healthScore}</div>
           <div class="cm2-stat-sub">${healthScore>=75?'Thriving':healthScore>=50?'Moderate':'At risk'}</div>
         </div>
       </div>
@@ -5726,54 +5765,44 @@ function _buildStatCards() {
 
 
 // ═══════════════════════════════════════════════════════════════════
-//  STUDENT TABLE RENDER
+//  STUDENT TABLE
 // ═══════════════════════════════════════════════════════════════════
 function _renderStudentTable() {
   const tbody = document.getElementById('cm2-tbody');
   if (!tbody) return;
-
-  const data   = CM2.filteredStudents;
-  const total  = data.length;
-  const pages  = Math.max(1, Math.ceil(total / CM2.pageSize));
+  const data  = CM2.filteredStudents;
+  const pages = Math.max(1, Math.ceil(data.length / CM2.pageSize));
   if (CM2.currentPage > pages) CM2.currentPage = pages;
-
   const start = (CM2.currentPage - 1) * CM2.pageSize;
   const paged = data.slice(start, start + CM2.pageSize);
 
   if (!paged.length) {
-    tbody.innerHTML = `<tr><td colspan="5">
-      <div class="cm2-empty">
-        <div class="cm2-empty-icon">${CM2.searchQuery ? '🔍' : '👥'}</div>
-        <h3>${CM2.searchQuery ? 'No matches found' : 'No students in this class'}</h3>
-        <p>${CM2.searchQuery
-          ? `No students match "${esc(CM2.searchQuery)}". Try a different name or ID.`
-          : 'Students will appear here once they are added by the school administrator.'}</p>
-      </div>
-    </td></tr>`;
-    _renderPagination(total, pages);
+    tbody.innerHTML = `<tr><td colspan="5"><div class="cm2-empty">
+      <div class="cm2-empty-icon">${CM2.searchQuery ? '🔍' : '👥'}</div>
+      <h3>${CM2.searchQuery ? 'No matches' : 'No students yet'}</h3>
+      <p>${CM2.searchQuery
+        ? `No students match "${esc(CM2.searchQuery)}".`
+        : 'Students will appear here once they are admitted to this class.'}</p>
+    </div></td></tr>`;
+    _renderPagination(0, 1);
     return;
   }
 
-  tbody.innerHTML = paged.map((s, i) => {
+  tbody.innerHTML = paged.map(s => {
     const avatarSrc = s.photo || _initialsAvatar(s.name, 36);
+    const attColor  = s._attPct === null ? '#94a3b8' : s._attPct >= 80 ? '#059669' : s._attPct >= 60 ? '#d97706' : '#dc2626';
 
-    // Attendance pill
     const attHtml = s._attPct !== null
-      ? `<span class="cm2-pill ${s._attPct>=80?'cm2-pill-green':s._attPct>=60?'cm2-pill-amber':'cm2-pill-red'}">
-          ${s._attPct}%
-         </span>`
+      ? `<span class="cm2-pill ${s._attPct>=80?'cm2-pill-green':s._attPct>=60?'cm2-pill-amber':'cm2-pill-red'}">${s._attPct}%</span>
+         <div class="cm2-mini-bar"><div class="cm2-mini-fill" style="width:${s._attPct}%;background:${attColor};"></div></div>`
       : `<span style="color:#94a3b8;font-size:.8rem;">—</span>`;
 
-    // Grade pill
     let gradeHtml = `<span style="color:#94a3b8;font-size:.8rem;">—</span>`;
     if (s._avgScore !== null) {
       const g = getZambianGrade(s._avgScore);
-      gradeHtml = `<span class="cm2-pill" style="background:${g.color}18;color:${g.color};">
-        G${g.label} · ${s._avgScore}%
-      </span>`;
+      gradeHtml = `<span class="cm2-pill" style="background:${g.color}18;color:${g.color};">G${g.label} · ${s._avgScore}%</span>`;
     }
 
-    // Fee pill
     const feePills = {
       paid:    '<span class="cm2-pill cm2-pill-green">✓ Paid</span>',
       partial: '<span class="cm2-pill cm2-pill-amber">⚡ Partial</span>',
@@ -5781,10 +5810,9 @@ function _renderStudentTable() {
       na:      '<span style="color:#94a3b8;font-size:.8rem;">—</span>',
     };
 
-    // Rank medal
     const medals = ['🥇','🥈','🥉'];
     const rankHtml = s._rank && s._rank <= 3
-      ? `<span class="cm2-rank">${medals[s._rank-1]}</span>`
+      ? medals[s._rank-1]
       : s._rank
       ? `<span style="font-size:.8rem;color:var(--cm2-muted);">#${s._rank}</span>`
       : `<span style="color:#94a3b8;font-size:.8rem;">—</span>`;
@@ -5794,7 +5822,7 @@ function _renderStudentTable() {
         <td>
           <div class="cm2-name-cell">
             <img class="cm2-avatar" src="${esc(avatarSrc)}" alt="${esc(s.name)}"
-              onerror="this.src='${_initialsAvatar(s.name, 36)}'">
+              onerror="this.src='${_initialsAvatar(s.name,36)}'">
             <div>
               <div class="cm2-student-name">${esc(s.name)}</div>
               <div class="cm2-student-id">${esc(s.studentId || s.id)}</div>
@@ -5808,33 +5836,29 @@ function _renderStudentTable() {
       </tr>`;
   }).join('');
 
-  _renderPagination(total, pages);
+  _renderPagination(data.length, pages);
 }
 
 function _renderPagination(total, pages) {
   const wrap = document.getElementById('cm2-pagination');
   if (!wrap) return;
-  if (total === 0 || pages <= 1) { wrap.style.display = 'none'; return; }
+  if (!total || pages <= 1) { wrap.style.display='none'; return; }
   wrap.style.display = 'flex';
-
   const start = (CM2.currentPage-1)*CM2.pageSize+1;
   const end   = Math.min(CM2.currentPage*CM2.pageSize, total);
-
   wrap.innerHTML = `
     <span>Showing ${start}–${end} of ${total} students</span>
     <div class="cm2-pages">
       <button class="cm2-pg-btn" ${CM2.currentPage===1?'disabled':''}
         onclick="window._cm2GoPage(${CM2.currentPage-1})">‹</button>
-      ${Array.from({length:pages},(_,i)=>i+1).filter(p =>
-        p===1 || p===pages || Math.abs(p-CM2.currentPage)<=1
-      ).reduce((acc,p,i,arr) => {
-        if (i>0 && p-arr[i-1]>1) acc.push('…');
-        acc.push(p); return acc;
-      },[]).map(p => p==='…'
-        ? `<span style="padding:0 4px;color:var(--cm2-muted);">…</span>`
-        : `<button class="cm2-pg-btn${p===CM2.currentPage?' active':''}"
-            onclick="window._cm2GoPage(${p})">${p}</button>`
-      ).join('')}
+      ${Array.from({length:pages},(_,i)=>i+1)
+        .filter(p=>p===1||p===pages||Math.abs(p-CM2.currentPage)<=1)
+        .reduce((acc,p,i,arr)=>{if(i>0&&p-arr[i-1]>1)acc.push('…');acc.push(p);return acc;},[])
+        .map(p=>p==='…'
+          ?`<span style="padding:0 4px;color:var(--cm2-muted);">…</span>`
+          :`<button class="cm2-pg-btn${p===CM2.currentPage?' active':''}"
+              onclick="window._cm2GoPage(${p})">${p}</button>`
+        ).join('')}
       <button class="cm2-pg-btn" ${CM2.currentPage===pages?'disabled':''}
         onclick="window._cm2GoPage(${CM2.currentPage+1})">›</button>
     </div>`;
@@ -5845,56 +5869,40 @@ function _renderPagination(total, pages) {
 //  SEARCH / SORT / PAGINATE
 // ═══════════════════════════════════════════════════════════════════
 window._cm2Search = function(q) {
-  CM2.searchQuery = q.toLowerCase().trim();
-  CM2.currentPage = 1;
-  _applyFilters();
+  CM2.searchQuery=q.toLowerCase().trim(); CM2.currentPage=1; _applyFilters();
 };
-
 window._cm2Sort = function(val) {
-  const [field, dir] = val.split('-');
-  CM2.sortField = field; CM2.sortDir = dir;
-  CM2.currentPage = 1;
-  _applyFilters();
+  const [f,d]=val.split('-'); CM2.sortField=f; CM2.sortDir=d; CM2.currentPage=1; _applyFilters();
 };
-
 window._cm2SortCol = function(field) {
-  if (CM2.sortField === field) CM2.sortDir = CM2.sortDir === 'asc' ? 'desc' : 'asc';
-  else { CM2.sortField = field; CM2.sortDir = 'desc'; }
-  CM2.currentPage = 1;
-  _applyFilters();
+  CM2.sortDir = CM2.sortField===field && CM2.sortDir==='desc' ? 'asc' : 'desc';
+  CM2.sortField=field; CM2.currentPage=1; _applyFilters();
 };
-
 window._cm2GoPage = function(p) {
-  CM2.currentPage = p;
-  _renderStudentTable();
-  // Scroll table into view
-  document.getElementById('cm2-table')?.scrollIntoView({ behavior:'smooth', block:'nearest' });
+  CM2.currentPage=p; _renderStudentTable();
+  document.getElementById('cm2-table')?.scrollIntoView({behavior:'smooth',block:'nearest'});
 };
 
 function _applyFilters() {
   let data = [...CM2.allStudents];
-
   if (CM2.searchQuery) {
     data = data.filter(s =>
       (s.name||'').toLowerCase().includes(CM2.searchQuery) ||
-      normId(s.studentId||s.id).includes(CM2.searchQuery)
-    );
+      normId(s.studentId||s.id).includes(CM2.searchQuery));
   }
-
-  data.sort((a, b) => {
-    let va, vb;
-    switch (CM2.sortField) {
+  data.sort((a,b) => {
+    let va,vb;
+    switch(CM2.sortField) {
       case 'name':  va=(a.name||'').toLowerCase(); vb=(b.name||'').toLowerCase(); break;
       case 'att':   va=a._attPct??-1;   vb=b._attPct??-1;   break;
       case 'grade': va=a._avgScore??-1; vb=b._avgScore??-1; break;
       case 'fee':   va=a._paid??0;      vb=b._paid??0;      break;
       default:      va=a.name||'';      vb=b.name||'';
     }
-    if (typeof va === 'string') return CM2.sortDir==='asc' ? va.localeCompare(vb) : vb.localeCompare(va);
-    return CM2.sortDir === 'asc' ? va - vb : vb - va;
+    if (typeof va==='string') return CM2.sortDir==='asc'?va.localeCompare(vb):vb.localeCompare(va);
+    return CM2.sortDir==='asc'?va-vb:vb-va;
   });
-
-  CM2.filteredStudents = data;
+  CM2.filteredStudents=data;
   _renderStudentTable();
 }
 
@@ -5905,23 +5913,19 @@ function _applyFilters() {
 window._cm2ExportCSV = function() {
   const data = CM2.filteredStudents;
   if (!data.length) return;
-  const headers = ['Student ID', 'Name', 'Class', 'Phone', 'Address', 'Attendance %', 'Avg Grade', 'Fee Status', 'Rank'];
+  const headers = ['Student ID','Name','Class','Phone','Attendance %','Avg Grade','Fee Status','Rank'];
   const rows = data.map(s => {
-    const g = s._avgScore !== null ? `G${getZambianGrade(s._avgScore).label} (${s._avgScore}%)` : '';
-    return [
-      s.studentId || s.id, s.name, s.classId, s.phone || '',
-      s.address || '', s._attPct !== null ? s._attPct + '%' : '',
-      g, s._feeStatus || '', s._rank || ''
-    ].map(v => `"${String(v).replace(/"/g,'""')}"`);
+    const g = s._avgScore!==null ? `G${getZambianGrade(s._avgScore).label} (${s._avgScore}%)` : '';
+    return [s.studentId||s.id, s.name, s.classId, s.phone||'',
+      s._attPct!==null?s._attPct+'%':'', g, s._feeStatus||'', s._rank||'']
+      .map(v=>`"${String(v).replace(/"/g,'""')}"`);
   });
-  const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `class_${CM2.classId}_${new Date().toISOString().split('T')[0]}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
+  const csv  = [headers.join(','),...rows.map(r=>r.join(','))].join('\n');
+  const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href=url; a.download=`class_${CM2.rawClassId}_${new Date().toISOString().split('T')[0]}.csv`;
+  a.click(); URL.revokeObjectURL(url);
 };
 
 
@@ -5932,70 +5936,57 @@ window.openCM2StudentModal = function(studentId) {
   const student = CM2.allStudents.find(s => s.id === studentId);
   if (!student) return;
   CM2.activeStudentId = studentId;
-  CM2.activeModalTab = 'profile';
-  
-  // Header
-  const avatarSrc = student.photo || _initialsAvatar(student.name, 64);
+
+  const avatarSrc = student.photo || _initialsAvatar(student.name, 60);
   document.getElementById('cm2-modal-avatar').src = avatarSrc;
   document.getElementById('cm2-modal-name').textContent = student.name || '—';
-  
-  const metaEl = document.getElementById('cm2-modal-meta');
-  const sid = student.studentId || normId(student.id);
-  const grade = student._avgScore !== null ? getZambianGrade(student._avgScore) : null;
-  const feeLabel = { paid: '💚 Fees Paid', partial: '🟡 Partial', unpaid: '🔴 Fees Due', na: '' } [student._feeStatus] || '';
-  metaEl.innerHTML = `
-    <span>${esc(sid)}</span>
-    ${student._attPct !== null ? `<span>📅 ${student._attPct}% att.</span>` : ''}
-    ${grade ? `<span style="color:#fff;">G${grade.label} · ${grade.desc}</span>` : ''}
-    ${feeLabel ? `<span>${feeLabel}</span>` : ''}
-  `;
-  
+
+  const grade     = student._avgScore !== null ? getZambianGrade(student._avgScore) : null;
+  const feeLabel  = {paid:'💚 Paid',partial:'🟡 Partial',unpaid:'🔴 Due',na:''}[student._feeStatus]||'';
+  document.getElementById('cm2-modal-meta').innerHTML = `
+    <span>${esc(student.studentId||student.id)}</span>
+    ${student._attPct!==null?`<span>📅 ${student._attPct}%</span>`:''}
+    ${grade?`<span>G${grade.label} · ${grade.desc}</span>`:''}
+    ${feeLabel?`<span>${feeLabel}</span>`:''}`;
+
   // Reset tabs
-  document.querySelectorAll('.cm2-modal-tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.cm2-tab-panel').forEach(p => { p.classList.remove('active');
-    p.innerHTML = ''; });
+  document.querySelectorAll('.cm2-modal-tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.cm2-tab-panel').forEach(p=>{p.classList.remove('active');p.innerHTML='';delete p.dataset.loaded;});
   document.querySelector('[data-tab="profile"]')?.classList.add('active');
-  document.getElementById('cm2-panel-profile')?.classList.add('active');
-  
-  // Load profile tab immediately
-  _loadProfileTab(student);
-  
-  // Show overlay
+  const profilePanel = document.getElementById('cm2-panel-profile');
+  if (profilePanel) { profilePanel.classList.add('active'); _loadProfileTab(student); }
+
   const overlay = document.getElementById('cm2-modal-overlay');
-  if (overlay) {
-    overlay.style.display = 'flex';
-    requestAnimationFrame(() => overlay.classList.add('open'));
-  }
+  if (overlay) { overlay.style.display='flex'; requestAnimationFrame(()=>overlay.classList.add('open')); }
 };
 
 window.closeCM2Modal = function() {
   const overlay = document.getElementById('cm2-modal-overlay');
   if (!overlay) return;
   overlay.classList.remove('open');
-  setTimeout(() => { overlay.style.display = 'none'; }, 260);
+  setTimeout(()=>{ overlay.style.display='none'; }, 240);
 };
 
 window._cm2SwitchTab = function(tab, btn) {
-  document.querySelectorAll('.cm2-modal-tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.cm2-tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.cm2-modal-tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.cm2-tab-panel').forEach(p=>p.classList.remove('active'));
   btn.classList.add('active');
-  document.getElementById(`cm2-panel-${tab}`)?.classList.add('active');
-  CM2.activeModalTab = tab;
-  
-  const student = CM2.allStudents.find(s => s.id === CM2.activeStudentId);
-  if (!student) return;
-  
-  // Lazy-load each tab
   const panel = document.getElementById(`cm2-panel-${tab}`);
-  if (panel && !panel.dataset.loaded) {
-    panel.dataset.loaded = '1';
-    if (tab === 'results') _loadResultsTab(student, panel);
-    if (tab === 'attendance') _loadAttendanceTab(student, panel);
-    if (tab === 'fees') _loadFeesTab(student, panel);
+  if (panel) {
+    panel.classList.add('active');
+    if (!panel.dataset.loaded) {
+      panel.dataset.loaded = '1';
+      const student = CM2.allStudents.find(s=>s.id===CM2.activeStudentId);
+      if (student) {
+        if (tab==='results')    _loadResultsTab(student, panel);
+        if (tab==='attendance') _loadAttendanceTab(student, panel);
+        if (tab==='fees')       _loadFeesTab(student, panel);
+      }
+    }
   }
 };
 
-// ─── Profile tab ────────────────────────────────────────────────
+// ── Profile ──────────────────────────────────────────────────────
 function _loadProfileTab(student) {
   const panel = document.getElementById('cm2-panel-profile');
   if (!panel) return;
@@ -6004,7 +5995,7 @@ function _loadProfileTab(student) {
       <div class="cm2-field"><label>Full Name</label>
         <div class="val">${esc(student.name||'—')}</div></div>
       <div class="cm2-field"><label>Student ID</label>
-        <div class="val" style="font-family:'DM Mono',monospace;font-size:.82rem;">
+        <div class="val" style="font-family:'DM Mono',monospace;font-size:.8rem;">
           ${esc(student.studentId||student.id||'—')}</div></div>
       <div class="cm2-field"><label>Class</label>
         <div class="val">${esc(student.classId||'—')}</div></div>
@@ -6021,180 +6012,102 @@ function _loadProfileTab(student) {
     <div class="cm2-field-grid">
       <div class="cm2-field"><label>Avg Grade</label>
         <div class="val">${student._avgScore!==null
-          ? `G${getZambianGrade(student._avgScore).label} · ${getZambianGrade(student._avgScore).desc} · ${student._avgScore}%`
-          : '—'}</div></div>
-      <div class="cm2-field"><label>Attendance Rate</label>
+          ?`G${getZambianGrade(student._avgScore).label} · ${getZambianGrade(student._avgScore).desc} · ${student._avgScore}%`
+          :'—'}</div></div>
+      <div class="cm2-field"><label>Attendance</label>
         <div class="val">${student._attPct!==null?student._attPct+'%':'—'}</div></div>
       <div class="cm2-field"><label>Fee Status</label>
-        <div class="val">${{
-          paid:'✅ Fully Paid',partial:`⚡ Partial (K${(student._paid||0).toLocaleString()})`,
-          unpaid:'❌ Unpaid',na:'—'
-        }[student._feeStatus]||'—'}</div></div>
+        <div class="val">${{paid:'✅ Fully Paid',partial:`⚡ Partial (K${(student._paid||0).toLocaleString()})`,unpaid:'❌ Unpaid',na:'—'}[student._feeStatus]||'—'}</div></div>
       <div class="cm2-field"><label>Class Rank</label>
         <div class="val">${student._rank?'#'+student._rank+' in class':'—'}</div></div>
     </div>`;
 }
 
-// ─── Results tab ────────────────────────────────────────────────
-async function _loadResultsTab(student, panel) {
-  const sid = student._sid;
-  const allResults = CM2._classResults || [];
-
-  const sResults = allResults
-    .filter(r => {
-      // FIX ⑤: normId lookup
-      const key = Object.keys(r.scores||{}).find(k => normId(k) === sid);
-      return key !== undefined;
-    })
+// ── Results ───────────────────────────────────────────────────────
+function _loadResultsTab(student, panel) {
+  const sid = student._sid; const origId = student._origId;
+  const sResults = (CM2._classResults||[])
     .map(r => {
-      const key   = Object.keys(r.scores||{}).find(k => normId(k) === sid);
-      const score = Number(r.scores[key]);
-      return { ...r, _score: score };
+      const score = _findScore(r.scores, origId, sid);  // FIX 4
+      return score !== undefined ? { ...r, _score: score } : null;
     })
-    .sort((a,b) => new Date(b.date||b.createdAt||0) - new Date(a.date||a.createdAt||0));
+    .filter(Boolean)
+    .sort((a,b)=>new Date(b.date||b.createdAt||0)-new Date(a.date||a.createdAt||0));
 
   if (!sResults.length) {
-    panel.innerHTML = `<div class="cm2-empty">
-      <div class="cm2-empty-icon">📊</div>
-      <h3>No results yet</h3>
-      <p>Results will appear here once your teacher publishes test scores.</p>
-    </div>`;
+    panel.innerHTML = `<div class="cm2-empty"><div class="cm2-empty-icon">📊</div>
+      <h3>No results yet</h3><p>Results appear here once test scores are recorded.</p></div>`;
     return;
   }
-
   const avg   = Math.round(sResults.reduce((s,r)=>s+r._score,0)/sResults.length);
   const grade = getZambianGrade(avg);
   const max   = Math.max(...sResults.map(r=>r._score));
-
   panel.innerHTML = `
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;">
-      <div style="flex:1;min-width:100px;background:var(--cm2-bg);border:1.5px solid var(--cm2-border);
-        border-radius:12px;padding:12px 16px;">
-        <div style="font-size:.7rem;text-transform:uppercase;letter-spacing:.8px;
-          color:var(--cm2-muted);margin-bottom:4px;">Tests</div>
-        <div style="font-size:1.5rem;font-weight:900;color:var(--cm2-blue);">${sResults.length}</div>
-      </div>
-      <div style="flex:1;min-width:100px;background:var(--cm2-bg);border:1.5px solid var(--cm2-border);
-        border-radius:12px;padding:12px 16px;">
-        <div style="font-size:.7rem;text-transform:uppercase;letter-spacing:.8px;
-          color:var(--cm2-muted);margin-bottom:4px;">Average</div>
-        <div style="font-size:1.5rem;font-weight:900;color:${grade.color};">${avg}%</div>
-      </div>
-      <div style="flex:1;min-width:100px;background:var(--cm2-bg);border:1.5px solid var(--cm2-border);
-        border-radius:12px;padding:12px 16px;">
-        <div style="font-size:.7rem;text-transform:uppercase;letter-spacing:.8px;
-          color:var(--cm2-muted);margin-bottom:4px;">Best</div>
-        <div style="font-size:1.5rem;font-weight:900;color:#059669;">${max}%</div>
-      </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
+      ${_miniStatCard('#2563eb','Tests',sResults.length,'')}
+      ${_miniStatCard(grade.color,'Average',avg+'%','')}
+      ${_miniStatCard('#059669','Best',max+'%','')}
     </div>
     <div style="margin-bottom:14px;">
-      ${sResults.slice(0,15).map(r => {
-        const g   = getZambianGrade(r._score);
-        const pct = Math.round(r._score);
-        return `<div class="cm2-bar-row">
-          <div class="cm2-bar-label" title="${esc(r.subject||'—')}">
-            ${esc((r.subject||'').slice(0,14))}
-          </div>
-          <div class="cm2-bar-track">
-            <div class="cm2-bar-fill" style="width:${pct}%;background:${g.color};"></div>
-          </div>
-          <div class="cm2-bar-val" style="color:${g.color};">${pct}%</div>
-        </div>`;
-      }).join('')}
+      ${sResults.slice(0,12).map(r=>{const g=getZambianGrade(r._score);return `
+        <div class="cm2-bar-row">
+          <div class="cm2-bar-label" title="${esc(r.subject||'—')}">${esc((r.subject||'').slice(0,13))}</div>
+          <div class="cm2-bar-track"><div class="cm2-bar-fill" style="width:${r._score}%;background:${g.color};"></div></div>
+          <div class="cm2-bar-val" style="color:${g.color};">${r._score}%</div>
+        </div>`;}).join('')}
     </div>
-    <div style="font-size:.72rem;font-weight:700;text-transform:uppercase;
-      letter-spacing:.8px;color:var(--cm2-muted);margin-bottom:10px;">
-      Test History
-    </div>
-    ${sResults.map(r => {
-      const g = getZambianGrade(r._score);
-      return `<div class="cm2-hist-row">
+    ${sResults.map(r=>{const g=getZambianGrade(r._score);return `
+      <div class="cm2-hist-row">
         <div class="cm2-hist-icon" style="background:${g.color}18;">📝</div>
         <div class="cm2-hist-main">
           <div class="cm2-hist-title">${esc(r.subject||'—')} · ${esc(r.testName||r.name||'—')}</div>
           <div class="cm2-hist-sub">${fmtDate(r.date||r.createdAt)}</div>
         </div>
         <div class="cm2-hist-right">
-          <div class="cm2-hist-val">
-            <span style="background:${g.color}18;color:${g.color};
-              padding:2px 8px;border-radius:20px;font-size:.75rem;font-weight:700;">
-              G${g.label} · ${r._score}%
-            </span>
-          </div>
-          <div class="cm2-hist-date">${g.desc}</div>
+          <span style="background:${g.color}18;color:${g.color};padding:2px 8px;
+            border-radius:20px;font-size:.72rem;font-weight:700;">G${g.label} · ${r._score}%</span>
         </div>
-      </div>`;
-    }).join('')}`;
+      </div>`;}).join('')}`;
 }
 
-// ─── Attendance tab ──────────────────────────────────────────────
-async function _loadAttendanceTab(student, panel) {
-  const sid    = student._sid;
-  // FIX ③: normId comparison, FIX ①: a.present === true
-  const sAtt   = (CM2._classAtt||[])
-    .filter(a => normId(a.studentId) === sid)
-    .sort((a,b) => (b.date||'').localeCompare(a.date||''));
+// ── Attendance ────────────────────────────────────────────────────
+function _loadAttendanceTab(student, panel) {
+  const sid  = student._sid;
+  const sAtt = (CM2._classAtt||[])
+    .filter(a=>normId(a.studentId)===sid)
+    .sort((a,b)=>(b.date||'').localeCompare(a.date||''));
 
   if (!sAtt.length) {
-    panel.innerHTML = `<div class="cm2-empty">
-      <div class="cm2-empty-icon">📅</div>
-      <h3>No attendance records</h3>
-      <p>Attendance will appear here once your teacher starts taking registers.</p>
-    </div>`;
+    panel.innerHTML = `<div class="cm2-empty"><div class="cm2-empty-icon">📅</div>
+      <h3>No attendance records</h3><p>Records appear once the teacher starts taking registers.</p></div>`;
     return;
   }
-
-  const present = sAtt.filter(a => a.present === true).length;
-  const pct     = Math.round((present / sAtt.length) * 100);
+  const present = sAtt.filter(a=>a.present===true).length;
+  const pct     = Math.round((present/sAtt.length)*100);
   const color   = pct>=80?'#059669':pct>=60?'#d97706':'#dc2626';
-
   panel.innerHTML = `
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;">
-      <div style="flex:1;min-width:80px;background:var(--cm2-bg);
-        border:1.5px solid var(--cm2-border);border-radius:12px;padding:12px 16px;">
-        <div style="font-size:.7rem;text-transform:uppercase;letter-spacing:.8px;
-          color:var(--cm2-muted);margin-bottom:4px;">Sessions</div>
-        <div style="font-size:1.5rem;font-weight:900;color:var(--cm2-blue);">${sAtt.length}</div>
-      </div>
-      <div style="flex:1;min-width:80px;background:var(--cm2-bg);
-        border:1.5px solid var(--cm2-border);border-radius:12px;padding:12px 16px;">
-        <div style="font-size:.7rem;text-transform:uppercase;letter-spacing:.8px;
-          color:var(--cm2-muted);margin-bottom:4px;">Present</div>
-        <div style="font-size:1.5rem;font-weight:900;color:#059669;">${present}</div>
-      </div>
-      <div style="flex:1;min-width:80px;background:var(--cm2-bg);
-        border:1.5px solid var(--cm2-border);border-radius:12px;padding:12px 16px;">
-        <div style="font-size:.7rem;text-transform:uppercase;letter-spacing:.8px;
-          color:var(--cm2-muted);margin-bottom:4px;">Rate</div>
-        <div style="font-size:1.5rem;font-weight:900;color:${color};">${pct}%</div>
-      </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
+      ${_miniStatCard('#2563eb','Sessions',sAtt.length,'')}
+      ${_miniStatCard('#059669','Present',present,'')}
+      ${_miniStatCard(color,'Rate',pct+'%','')}
     </div>
     <div class="cm2-progress" style="margin-bottom:14px;">
       <div class="cm2-progress-fill" style="width:${pct}%;background:${color};"></div>
     </div>
-    <div style="font-size:.72rem;color:var(--cm2-muted);margin-bottom:8px;font-weight:700;">
-      Visual timeline — <span style="color:#059669;">●</span> present
-      <span style="color:#dc2626;margin-left:6px;">●</span> absent
+    <div style="font-size:.7rem;color:var(--cm2-muted);margin-bottom:7px;font-weight:700;">
+      Timeline · <span style="color:#059669;">●</span> present
+      <span style="color:#dc2626;margin-left:5px;">●</span> absent
     </div>
     <div class="cm2-att-dots">
-      ${sAtt.slice(0,60).map(a =>
-        `<div class="cm2-att-dot ${a.present===true?'present':'absent'}"
-          title="${fmtDate(a.date)} — ${a.present===true?'Present':'Absent'}"></div>`
-      ).join('')}
-      ${sAtt.length > 60
-        ? `<span style="font-size:.7rem;color:var(--cm2-muted);margin-left:4px;">
-            +${sAtt.length-60} more
-           </span>` : ''}
+      ${sAtt.slice(0,60).map(a=>`<div class="cm2-att-dot ${a.present===true?'present':'absent'}"
+        title="${fmtDate(a.date)} — ${a.present===true?'Present':'Absent'}"></div>`).join('')}
+      ${sAtt.length>60?`<span style="font-size:.7rem;color:var(--cm2-muted);margin-left:4px;">+${sAtt.length-60} more</span>`:''}
     </div>
     <div class="cm2-divider"></div>
-    <div style="font-size:.72rem;font-weight:700;text-transform:uppercase;
-      letter-spacing:.8px;color:var(--cm2-muted);margin-bottom:10px;">
-      Recent Sessions
-    </div>
-    ${sAtt.slice(0,20).map(a => `
+    <div style="font-size:.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.9px;color:var(--cm2-muted);margin-bottom:9px;">Recent Sessions</div>
+    ${sAtt.slice(0,20).map(a=>`
       <div class="cm2-hist-row">
-        <div class="cm2-hist-icon"
-          style="background:${a.present===true?'#d1fae5':'#fee2e2'};">
+        <div class="cm2-hist-icon" style="background:${a.present===true?'#d1fae5':'#fee2e2'};">
           ${a.present===true?'✅':'❌'}
         </div>
         <div class="cm2-hist-main">
@@ -6202,208 +6115,171 @@ async function _loadAttendanceTab(student, panel) {
           <div class="cm2-hist-sub">Term ${a.term||'—'} · Week ${a.week||'—'}</div>
         </div>
         <div class="cm2-hist-right">
-          <div class="cm2-hist-val"
-            style="color:${a.present===true?'#059669':'#dc2626'};">
+          <div class="cm2-hist-val" style="color:${a.present===true?'#059669':'#dc2626'};">
             ${a.present===true?'Present':'Absent'}
           </div>
         </div>
       </div>`).join('')}`;
 }
 
-// ─── Fees tab ────────────────────────────────────────────────────
-async function _loadFeesTab(student, panel) {
-  const sid       = student._sid;
-  // FIX ④: normId comparison, FIX ②: handle both payment formats
-  const sFees     = (CM2._classFees||[])
-    .filter(f => normId(f.studentId||f.id) === sid);
-  const perStudent = CM2._feesConfig?.totalFee || 0;
-  const paid       = sFees.reduce((s,f) => s+_extractFeeAmount(f), 0);
-  const balance    = Math.max(0, perStudent - paid);
-  const pct        = perStudent > 0 ? Math.round((paid/perStudent)*100) : 0;
-  const color      = pct>=100?'#059669':pct>=50?'#d97706':'#dc2626';
+// ── Fees ──────────────────────────────────────────────────────────
+function _loadFeesTab(student, panel) {
+  const sid      = student._sid;
+  const origId   = student._origId;
+  const sFees    = (CM2._classFees||[])
+    .filter(f=>normId(f.studentId||f.id)===sid);
+  const totalFee = CM2._totalFee || 0;
+  const paid     = sFees.reduce((s,f)=>s+_extractFeeAmount(f),0);
+  const balance  = Math.max(0,totalFee-paid);
+  const pct      = totalFee>0 ? Math.round((paid/totalFee)*100) : 0;
+  const color    = pct>=100?'#059669':pct>=50?'#d97706':'#dc2626';
 
-  // Flatten all payments for history
   const payments = [];
-  sFees.forEach(f => {
-    if (Array.isArray(f.payments)) {
-      f.payments.forEach(p => payments.push({ ...p, source:f.id }));
-    } else if (f.amount) {
-      payments.push({ date:f.date, amount:f.amount, status:f.status||'Paid', source:f.id });
-    }
+  sFees.forEach(f=>{
+    if (Array.isArray(f.payments)) f.payments.forEach(p=>payments.push({...p}));
+    else if (f.amount) payments.push({date:f.date,amount:f.amount,status:f.status||'Paid'});
   });
-  payments.sort((a,b) => (b.date||'').localeCompare(a.date||''));
+  payments.sort((a,b)=>(b.date||'').localeCompare(a.date||''));
 
   panel.innerHTML = `
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;">
-      <div style="flex:1;min-width:80px;background:var(--cm2-bg);
-        border:1.5px solid var(--cm2-border);border-radius:12px;padding:12px 16px;">
-        <div style="font-size:.7rem;text-transform:uppercase;letter-spacing:.8px;
-          color:var(--cm2-muted);margin-bottom:4px;">Target</div>
-        <div style="font-size:1.3rem;font-weight:900;color:var(--cm2-blue);">
-          K${perStudent.toLocaleString()}</div>
-      </div>
-      <div style="flex:1;min-width:80px;background:var(--cm2-bg);
-        border:1.5px solid var(--cm2-border);border-radius:12px;padding:12px 16px;">
-        <div style="font-size:.7rem;text-transform:uppercase;letter-spacing:.8px;
-          color:var(--cm2-muted);margin-bottom:4px;">Paid</div>
-        <div style="font-size:1.3rem;font-weight:900;color:#059669;">
-          K${paid.toLocaleString()}</div>
-      </div>
-      <div style="flex:1;min-width:80px;background:var(--cm2-bg);
-        border:1.5px solid var(--cm2-border);border-radius:12px;padding:12px 16px;">
-        <div style="font-size:.7rem;text-transform:uppercase;letter-spacing:.8px;
-          color:var(--cm2-muted);margin-bottom:4px;">Balance</div>
-        <div style="font-size:1.3rem;font-weight:900;color:${color};">
-          K${balance.toLocaleString()}</div>
-      </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
+      ${_miniStatCard('#2563eb','Target','K'+totalFee.toLocaleString(),'')}
+      ${_miniStatCard('#059669','Paid','K'+paid.toLocaleString(),'')}
+      ${_miniStatCard(color,'Balance','K'+balance.toLocaleString(),'')}
     </div>
     <div class="cm2-progress" style="margin-bottom:6px;">
-      <div class="cm2-progress-fill"
-        style="width:${Math.min(100,pct)}%;background:${color};"></div>
+      <div class="cm2-progress-fill" style="width:${Math.min(100,pct)}%;background:${color};"></div>
     </div>
-    <div style="font-size:.72rem;color:var(--cm2-muted);margin-bottom:16px;">
-      ${pct}% of target paid
-    </div>
-    ${payments.length === 0
-      ? `<div class="cm2-empty"><div class="cm2-empty-icon">💳</div>
-           <h3>No payments yet</h3>
-           <p>Payment records will appear here once fees are recorded.</p>
-         </div>`
-      : `<div style="font-size:.72rem;font-weight:700;text-transform:uppercase;
-           letter-spacing:.8px;color:var(--cm2-muted);margin-bottom:10px;">
-           Payment History
-         </div>
-         ${payments.map(p => `
-           <div class="cm2-hist-row">
-             <div class="cm2-hist-icon" style="background:#d1fae5;">💳</div>
-             <div class="cm2-hist-main">
-               <div class="cm2-hist-title">${fmtDate(p.date)}</div>
-               <div class="cm2-hist-sub">${esc(p.status||'Paid')} · ${esc(p.method||'—')}</div>
-             </div>
-             <div class="cm2-hist-right">
-               <div class="cm2-hist-val" style="color:#059669;">
-                 K${Number(p.amount||0).toLocaleString()}
-               </div>
-             </div>
-           </div>`).join('')}`}`;
+    <div style="font-size:.7rem;color:var(--cm2-muted);margin-bottom:14px;">${pct}% of target paid</div>
+    ${!payments.length
+      ?`<div class="cm2-empty"><div class="cm2-empty-icon">💳</div>
+          <h3>No payments yet</h3><p>Payment records appear here once fees are recorded.</p></div>`
+      :`<div style="font-size:.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.9px;
+           color:var(--cm2-muted);margin-bottom:9px;">Payment History</div>
+        ${payments.map(p=>`
+          <div class="cm2-hist-row">
+            <div class="cm2-hist-icon" style="background:#d1fae5;">💳</div>
+            <div class="cm2-hist-main">
+              <div class="cm2-hist-title">${fmtDate(p.date)}</div>
+              <div class="cm2-hist-sub">${esc(p.status||'Paid')}${p.method?` · ${esc(p.method)}`:''}</div>
+            </div>
+            <div class="cm2-hist-right">
+              <div class="cm2-hist-val" style="color:#059669;">K${Number(p.amount||0).toLocaleString()}</div>
+            </div>
+          </div>`).join('')}`}`;
+}
+
+// ── Shared mini stat card ─────────────────────────────────────────
+function _miniStatCard(color, label, value, sub) {
+  return `<div style="flex:1;min-width:80px;background:#f8fffe;border:1.5px solid #d0f5e8;
+    border-radius:12px;padding:11px 14px;">
+    <div style="font-size:.68rem;text-transform:uppercase;letter-spacing:.9px;
+      color:#64748b;margin-bottom:3px;">${esc(label)}</div>
+    <div style="font-size:1.3rem;font-weight:900;color:${esc(color)};">${esc(String(value))}</div>
+    ${sub?`<div style="font-size:.7rem;color:#64748b;">${esc(sub)}</div>`:''}
+  </div>`;
 }
 
 
 // ═══════════════════════════════════════════════════════════════════
-//  REALTIME SYNC — FIX ⑥: correct Firestore path + STAGGERED LOAD
+//  SILENT REFRESH (called after realtime updates or manual refresh)
 // ═══════════════════════════════════════════════════════════════════
-async function _initRealtimeSync(classId) {
-  // Tear down previous listeners
-  CM2.unsubListeners.forEach(u => { try { u(); } catch (_) {} });
-  CM2.unsubListeners = [];
-  
-  const user = typeof auth !== 'undefined' ? auth.currentUser : null;
-  if (!user) return;
-  
-  const profile = await getIndexedDB('userProfile', user.uid).catch(() => null);
-  if (!profile?.schoolId) return;
-  
-  const schoolId = sanitizeKey(profile.schoolId);
-  const teacherId = user.uid;
-  const safeClassId = sanitizeKey(classId);
-  
-  // FIX: Moved 'students' to the top so it syncs first
-  const COLLECTIONS = [
-    { name: 'students', onUpdate: () => _silentRefresh(true) },
-    { name: 'attendanceHistory', onUpdate: () => _silentRefresh() },
-    { name: 'fees', onUpdate: () => _silentRefresh() },
-    { name: 'results', onUpdate: () => _silentRefresh() },
-  ];
-  
-  for (const col of COLLECTIONS) {
-    const ref = collection(
-      fdb,
-      'schools', schoolId,
-      'teachers', teacherId,
-      col.name
-    );
-    
-    const unsub = onSnapshot(ref, async (snapshot) => {
-      let changed = false;
-      for (const change of snapshot.docChanges()) {
-        const docData = change.doc.data();
-        // Only care about docs for this class
-        if (docData.classId && sanitizeKey(docData.classId) !== safeClassId) continue;
-        const docId = normId(change.doc.id);
-        if (change.type === 'removed') {
-          await deleteIndexedDB(col.name, docId).catch(() => {});
-        } else {
-          await setIndexedDB(col.name, docId, {
-            ...docData,
-            id: docId,
-            classId: safeClassId,
-            _syncedFromServer: true
-          }).catch(() => {});
-        }
-        changed = true;
-      }
-      if (changed) col.onUpdate();
-    }, err => console.warn(`[CM2] ${col.name} listener error:`, err.message));
-    
-    CM2.unsubListeners.push(unsub);
-    
-    console.log(`[CM2] 📡 Attached listener for: ${col.name}`);
-    
-    // 🛑 THE FIX: Wait 600ms before attaching the next listener!
-    // This gives Firestore's security rules time to evaluate without hitting the 10-read limit
-    await new Promise(resolve => setTimeout(resolve, 600));
-  }
-  
-  console.log('[CM2] 📡 Realtime sync active for class:', safeClassId);
-}
-
-// Silent refresh: reload data, re-render, show pulse
-async function _silentRefresh(reloadStudents = false) {
+async function _silentRefresh() {
   await _loadAndEnrichStudents();
   _applyFilters();
-
-  // Rebuild stat cards in place (no full re-render to avoid scroll jump)
   const root = document.getElementById('cm2-root');
   if (root) {
     const oldGrid = root.querySelector('.cm2-stat-grid');
     if (oldGrid) {
-      const temp = document.createElement('div');
-      temp.innerHTML = _buildStatCards();
-      const newGrid = temp.querySelector('.cm2-stat-grid');
-      if (newGrid) oldGrid.replaceWith(newGrid);
+      const tmp = document.createElement('div');
+      tmp.innerHTML = _buildStatCards();
+      const ng = tmp.querySelector('.cm2-stat-grid');
+      if (ng) oldGrid.replaceWith(ng);
     }
   }
-
-  // Show update pulse
   const pulse = document.getElementById('cm2-update-pulse');
   if (pulse) {
     pulse.classList.add('show');
     clearTimeout(CM2.updatePulse);
-    CM2.updatePulse = setTimeout(() => pulse.classList.remove('show'), 4000);
+    CM2.updatePulse = setTimeout(()=>pulse.classList.remove('show'), 4000);
   }
-
-  CM2.lastUpdated = new Date();
 }
 
-// Public teardown (call on logout or class change)
+
+// ═══════════════════════════════════════════════════════════════════
+//  CLASS MANAGEMENT SECTION WIRING
+//  FIX 6: async timing — await dropdown fill before auto-loading
+// ═══════════════════════════════════════════════════════════════════
+function _cm2InitSection() {
+  _cm2PopulateClassDropdown().then(() => {
+    // FIX 6: now await is done, dropdown is filled
+    const classId = window._selectedClassId ||
+      localStorage.getItem('tm_selected_class');
+    if (classId) {
+      const sel = document.getElementById('cm2-class-select');
+      if (sel) sel.value = classId;
+      window.initPremiumClassDashboard(classId);
+    }
+  });
+}
+
+async function _cm2PopulateClassDropdown() {
+  const sel = document.getElementById('cm2-class-select');
+  if (!sel) return;
+  try {
+    let classes = _toArray(await getIndexedDB('classes').catch(()=>[]));
+
+    // Fallback to userProfile.classes
+    if (!classes.length && typeof auth !== 'undefined' && auth.currentUser) {
+      const profile = await getIndexedDB('userProfile', auth.currentUser.uid).catch(()=>null);
+      if (profile?.classes) classes = _toArray(profile.classes);
+    }
+    if (!classes.length) return;
+
+    // Normalize
+    classes = classes.map(cls =>
+      typeof cls === 'string' ? { id: cls, name: cls.replace(/_/g,' ') } : cls);
+    classes.sort((a,b)=>((a.displayName||a.name||a.id||'')).localeCompare((b.displayName||b.name||b.id||'')));
+
+    while (sel.options.length > 1) sel.remove(1);
+    classes.forEach(cls => {
+      const opt = document.createElement('option');
+      opt.value = cls.id || cls.classId || '';
+      opt.textContent = cls.displayName || cls.className || cls.name || opt.value;
+      sel.appendChild(opt);
+    });
+  } catch(e) { console.warn('[CM2] Dropdown:', e.message); }
+}
+
+window._cm2OnClassChange = function(classId) {
+  if (!classId) return;
+  window._selectedClassId = classId;
+  localStorage.setItem('tm_selected_class', classId);
+  window.initPremiumClassDashboard(classId);
+};
+
+// ═══════════════════════════════════════════════════════════════════
+//  CLEANUP
+// ═══════════════════════════════════════════════════════════════════
 window.destroyPremiumClassDashboard = function() {
-  CM2.unsubListeners.forEach(u => { try { u(); } catch(_) {} });
+  CM2.unsubListeners.forEach(u=>{ try{u();}catch(_){} });
   CM2.unsubListeners = [];
-  CM2.classId = null;
-  CM2.allStudents = [];
-  CM2.filteredStudents = [];
+  CM2.classId = null; CM2.rawClassId = null;
+  CM2.allStudents = []; CM2.filteredStudents = [];
   const root = document.getElementById('cm2-root');
   if (root) root.innerHTML = '';
 };
 
-// Legacy aliases (keeps backward compat with any existing calls)
-window.loadStudents        = window.initPremiumClassDashboard;
-window.loadClassSummaries  = _silentRefresh;
+// ── Legacy aliases ────────────────────────────────────────────────
+window.loadStudents            = window.initPremiumClassDashboard;
+window.loadClassSummaries      = _silentRefresh;
 window.showPremiumStudentModal = window.openCM2StudentModal;
-window.closeStudentModal   = window.closeCM2Modal;
-window.initClassRealtimeSync = _initRealtimeSync;
+window.closeStudentModal       = window.closeCM2Modal;
 
-console.log('[TeachMate] ✅ Premium Class Dashboard v2 loaded');
+// ── Expose internal helpers for showSection wiring ────────────────
+window._cm2InitSection = _cm2InitSection;
+
+console.log('[TeachMate] ✅ Premium Class Dashboard v3 loaded — 8 bugs fixed');
 
 
 
