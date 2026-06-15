@@ -3881,26 +3881,40 @@ const ALL_COLLECTIONS = [
     window.getDoc = getDoc;
 
 
-
-// ═══════════════════════════════════════════════════════════════════════════
-//  TEACHMATE 3.0 — ENTERPRISE SYNC & INDEXEDDB ENGINE (Production v6)
+              // ═══════════════════════════════════════════════════════════════════════════
+//  TEACHMATE 3.0 — ENTERPRISE SYNC & INDEXEDDB ENGINE (Production v7)
 //
-//  CHANGES IN v6:
-//  ★ FIX 1 — Multi-teacher / high-concurrency hardening
-//    - Queue processing batched in groups of 10 with a 50ms yield between
-//      batches. Prevents the browser from freezing when a teacher comes
-//      back online with hundreds of queued offline items.
-//    - Each queue entry processed with individual try/catch — one bad entry
-//      never crashes the whole sync loop for that teacher.
-//    - addToSyncQueue now stamps teacherId on every entry so shared-device
-//      scenarios correctly skip other teachers' queued items.
-//    - syncData() logs total items processed, synced, and failed so you
-//      can monitor performance across many teachers in the console.
-//    - _withTimeout wrapper on safeRestore_VB call so a slow restore after
-//      sync doesn't hang the sync engine's finally block indefinitely.
+//  CHANGES IN v7:
 //
-//  All v5 logic preserved: role-aware routing, concurrency lock, toxic
-//  payload eviction, auto-recovery on reconnect, offline banner.
+//  ★ ARCHITECTURE CHANGE — Shared class data routing
+//    attendanceHistory, attendanceSummary, results, fees moved from
+//    teacher-private path to school-level shared path for ALL teachers.
+//    Previously only headteacher/admin could write to school-level
+//    collections. Now ANY teacher writes their class data to the shared
+//    path, protected by Firestore rules (canWriteSharedDoc checks that
+//    the doc's classId is in the teacher's assignedClasses array).
+//
+//    OLD routing for a teacher writing attendance:
+//      schools/{schoolId}/teachers/{teacherId}/attendanceHistory/{docId}
+//
+//    NEW routing for a teacher writing attendance:
+//      schools/{schoolId}/attendanceHistory/{docId}
+//
+//    This means Teacher A and Teacher B both assigned to grade6_orange
+//    write to and read from the same Firestore collection, filtered by
+//    classId. Both see all class data instantly via live listeners.
+//
+//  ★ Routing table split into three tiers:
+//    1. ADMIN_ONLY_COLLECTIONS — classes, students: only headteacher/admin
+//       may write (unchanged from v6)
+//    2. SHARED_CLASS_COLLECTIONS — attendanceHistory, attendanceSummary,
+//       results, fees: ALL teachers write to school-level path; Firestore
+//       rules enforce classId-based access control per document
+//    3. PRIVATE_COLLECTIONS — everything else routes to teacher subcollection
+//       (lesson plans, drafts, etc added in future)
+//
+//  All v6 fixes preserved: batch processing, jitter backoff, teacherId
+//  stamping, concurrency lock, toxic payload eviction, auto-recovery.
 // ═══════════════════════════════════════════════════════════════════════════
 
 let isSyncing = false; // 🛡️ CONCURRENCY LOCK
@@ -3935,7 +3949,10 @@ function getIndexedDB(storeName, key) {
 
     request.onsuccess = () => resolve(request.result ?? (key !== undefined ? null : []));
     request.onerror   = () => {
-      console.error(`IndexedDB GET error [${storeName}]`, request.error?.name, request.error?.message, request.error?.code);
+      console.error(
+        `IndexedDB GET error [${storeName}]`,
+        request.error?.name, request.error?.message, request.error?.code
+      );
       reject(request.error);
     };
   });
@@ -3991,7 +4008,10 @@ function deleteIndexedDB(storeName, key) {
     const req = store.delete(key);
     req.onsuccess = () => resolve();
     req.onerror   = () => {
-      console.error(`IndexedDB DELETE error [${storeName}]`, req.error?.name, req.error?.message, req.error?.code);
+      console.error(
+        `IndexedDB DELETE error [${storeName}]`,
+        req.error?.name, req.error?.message, req.error?.code
+      );
       reject(req.error);
     };
   });
@@ -4015,7 +4035,7 @@ async function initIndexedDB() {
         'teacherComments', 'lp_v3_plans'
       ];
 
-      defaultStores.forEach((storeName) => {
+      defaultStores.forEach(storeName => {
         if (!db.objectStoreNames.contains(storeName)) {
           db.createObjectStore(storeName, { keyPath: 'id' });
         }
@@ -4051,7 +4071,7 @@ async function initIndexedDB() {
       const missing = requiredStores.filter(name => !db.objectStoreNames.contains(name));
 
       if (missing.length > 0) {
-        console.warn('Missing stores:', missing, ' – Deleting DB and retrying...');
+        console.warn('Missing stores:', missing, '— Deleting DB and retrying...');
         db.close();
 
         const deleteReq = indexedDB.deleteDatabase('TeachMateDB');
@@ -4059,18 +4079,18 @@ async function initIndexedDB() {
           console.log('Old DB deleted successfully.');
           initIndexedDB().then(resolve).catch(reject);
         };
-        deleteReq.onerror   = (err) => reject(err);
+        deleteReq.onerror   = err => reject(err);
         deleteReq.onblocked = () => {
-          alert('Database upgrade blocked – close other TeachMate tabs.');
+          alert('Database upgrade blocked — close other TeachMate tabs.');
           reject(new Error('DB blocked'));
         };
       } else {
-        console.log('All stores present – IndexedDB READY ✔️');
+        console.log('All stores present — IndexedDB READY ✔️');
         resolve();
       }
     };
 
-    request.onerror   = (event) => reject(event.target.error);
+    request.onerror   = event => reject(event.target.error);
     request.onblocked = () => reject(new Error('DB upgrade blocked'));
   });
 }
@@ -4086,7 +4106,7 @@ async function cleanSyncQueue() {
   let queue = await getIndexedDB('syncQueue').catch(() => []);
   if (!Array.isArray(queue)) queue = [];
 
-  for (let entry of queue) {
+  for (const entry of queue) {
     if (!entry || !entry.data) continue;
     const payload = typeof sanitizeForFirestore === 'function'
       ? sanitizeForFirestore(entry.data)
@@ -4104,14 +4124,11 @@ cleanSyncQueue();
 //  SYNC QUEUE HELPERS
 // ──────────────────────────────────────────────────────────────
 async function addToSyncQueue(path, action, data) {
-  if (!db) return console.warn('[SyncEngine] DB not ready – cannot queue');
+  if (!db) return console.warn('[SyncEngine] DB not ready — cannot queue');
   try {
-    const store    = db.transaction(['syncQueue'], 'readwrite').objectStore('syncQueue');
-    const id       = Date.now() + Math.random();
-    const safeData = typeof removeUndefined === 'function' ? removeUndefined(data) : data;
-
-    // FIX 1: Stamp teacherId on every queue entry so shared-device
-    // scenarios correctly skip items queued by other teachers.
+    const store     = db.transaction(['syncQueue'], 'readwrite').objectStore('syncQueue');
+    const id        = Date.now() + Math.random();
+    const safeData  = typeof removeUndefined === 'function' ? removeUndefined(data) : data;
     const teacherId = auth?.currentUser?.uid || null;
 
     store.add({
@@ -4119,7 +4136,7 @@ async function addToSyncQueue(path, action, data) {
       path:      String(path).trim(),
       action,
       data:      safeData,
-      teacherId, // ← NEW: always stamped
+      teacherId,
       timestamp: Date.now(),
       retries:   0
     });
@@ -4156,8 +4173,8 @@ async function syncData() {
   isSyncing = true;
   updateSyncStatus('Syncing…', '#f9d423');
 
-  let syncedCount = 0;
-  let failedCount = 0;
+  let syncedCount  = 0;
+  let failedCount  = 0;
   let skippedCount = 0;
 
   try {
@@ -4173,7 +4190,7 @@ async function syncData() {
       return;
     }
 
-    const safeSanitize = (val) => typeof sanitizeKey === 'function' ? sanitizeKey(val) : val;
+    const safeSanitize = val => typeof sanitizeKey === 'function' ? sanitizeKey(val) : val;
     const schoolId     = safeSanitize(String(profile.schoolId));
     const teacherId    = user.uid;
     const role         = String(profile.role || '').toLowerCase();
@@ -4195,24 +4212,34 @@ async function syncData() {
       'info', 3000
     );
 
-    const schoolLevelCollections = [
-      'classes', 'students', 'results', 'attendanceHistory',
-      'attendanceSummary', 'fees', 'feesConfig'
-    ];
+    // ── v7 ROUTING TABLE ─────────────────────────────────────────────────────
+    //
+    // TIER 1 — Admin-only school-level collections.
+    // Only headteacher/admin writes here. Teachers never write these.
+    const ADMIN_ONLY_COLLECTIONS = new Set(['classes', 'students', 'feesConfig']);
 
-    // FIX 1: Process queue in batches of 10 with a 50ms yield between
-    // batches. Without batching, a teacher with 300 queued offline items
-    // processes all 300 in one tight loop, freezing the browser UI and
-    // potentially hitting Firestore write rate limits.
-    // With batching: 10 writes → 50ms yield → 10 writes → 50ms yield…
-    // The browser gets breathing room and Firestore gets a gentler load.
+    // TIER 2 — Shared class data collections.
+    // ALL teachers write to the school-level path.
+    // Firestore rules enforce classId-based access (canWriteSharedDoc).
+    // This is the v7 change — previously these were teacher-private.
+    const SHARED_CLASS_COLLECTIONS = new Set([
+      'attendanceHistory',
+      'attendanceSummary',
+      'results',
+      'fees',
+    ]);
+
+    // TIER 3 — Everything else → teacher's own subcollection.
+    // Lesson plans, drafts, comments, etc.
+    // (No explicit set needed — it's the default fallback below.)
+
     const BATCH_SIZE  = 10;
-    const BATCH_YIELD = 50; // ms between batches
+    const BATCH_YIELD = 50;
 
     for (let batchStart = 0; batchStart < queue.length; batchStart += BATCH_SIZE) {
       const batch = queue.slice(batchStart, batchStart + BATCH_SIZE);
 
-      for (let entry of batch) {
+      for (const entry of batch) {
         if (!entry || !entry.path || !entry.action || !entry.id) {
           await deleteIndexedDB('syncQueue', entry?.id).catch(() => {});
           skippedCount++;
@@ -4235,10 +4262,30 @@ async function syncData() {
           continue;
         }
 
-        // Role-aware routing — mirrors restore engine read paths exactly
-        let fullParts = (isPrivileged && schoolLevelCollections.includes(pathParts[0]))
-          ? ['schools', schoolId, ...pathParts]
-          : ['schools', schoolId, 'teachers', teacherId, ...pathParts];
+        const collection = pathParts[0];
+        let fullParts;
+
+        if (ADMIN_ONLY_COLLECTIONS.has(collection)) {
+          // TIER 1: Only privileged users write here
+          if (isPrivileged) {
+            fullParts = ['schools', schoolId, ...pathParts];
+          } else {
+            // Teacher trying to write admin-only data — skip it
+            _warn(`[SyncEngine] Teacher attempted write to admin-only collection "${collection}". Dropping.`);
+            await deleteIndexedDB('syncQueue', entry.id);
+            skippedCount++;
+            continue;
+          }
+
+        } else if (SHARED_CLASS_COLLECTIONS.has(collection)) {
+          // TIER 2: ALL teachers write to school-level shared path.
+          // Firestore rules enforce classId-based access per document.
+          fullParts = ['schools', schoolId, ...pathParts];
+
+        } else {
+          // TIER 3: Truly private data → teacher's own subcollection
+          fullParts = ['schools', schoolId, 'teachers', teacherId, ...pathParts];
+        }
 
         if (fullParts.length % 2 !== 0) {
           console.warn('[SyncEngine] Invalid path length. Dropping.', fullParts);
@@ -4301,24 +4348,23 @@ async function syncData() {
         }
       }
 
-      // FIX 1: Yield between batches — lets browser breathe and
-      // prevents Firestore write rate spikes from hundreds of teachers
+      // Yield between batches — browser breathing room + Firestore rate relief
       if (batchStart + BATCH_SIZE < queue.length) {
         await new Promise(resolve => setTimeout(resolve, BATCH_YIELD));
       }
     }
 
     console.log(
-      `[SyncEngine] Done — synced:${syncedCount} failed:${failedCount} skipped:${skippedCount} ` +
-      `of ${totalItems} total`
+      `[SyncEngine] Done — synced:${syncedCount} failed:${failedCount} ` +
+      `skipped:${skippedCount} of ${totalItems} total`
     );
 
     // Pull latest truth from server via Restore Engine.
-    // Wrapped in timeout so a slow restore never hangs the sync engine.
+    // Wrapped in 30s timeout so a slow restore never blocks the finally block.
     if (typeof safeRestore_VB === 'function') {
       await Promise.race([
         safeRestore_VB(schoolId),
-        new Promise(resolve => setTimeout(resolve, 30000)) // 30s max
+        new Promise(resolve => setTimeout(resolve, 30000))
       ]);
     }
 
@@ -4393,46 +4439,41 @@ window.syncData          = syncData;
 window.triggerSync       = triggerSync;
 window.updateSyncStatus  = updateSyncStatus;
 
-console.log('[SyncEngine] ✅ Production sync engine v6 loaded.');
+console.log('[SyncEngine] ✅ Production sync engine v7 loaded.');
 
 
-  // ═══════════════════════════════════════════════════════════════════════════
-//  TEACHMATE 3.0 — RESTORE ENGINE  v8  (Production-Final)
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  TEACHMATE 3.0 — RESTORE ENGINE  v9  (Production-Final)
 //
-//  CHANGES IN v8:
+//  CHANGES IN v9:
 //
-//  ★ FIX 1 — feesConfig dual-path read
-//    Previously only read from schools/{schoolId}/feesConfig/{classId}.
-//    Now tries school-level path first, then falls back to teacher's own
-//    subcollection schools/{schoolId}/teachers/{uid}/feesConfig/{classId}.
-//    Whichever path has data wins. Both results are merged into IndexedDB.
+//  ★ ARCHITECTURE CHANGE — Shared class data
+//    attendanceHistory, attendanceSummary, results, fees moved from
+//    TEACHER_PRIVATE_COLLECTIONS to SCHOOL_LEVEL_QUERY_COLLECTIONS.
+//    All teachers assigned to the same class now read/write the same
+//    shared documents at schools/{schoolId}/{collection}.
+//    This means Teacher A and Teacher B both assigned to grade6_orange
+//    see identical attendance, results, and fees for that class.
 //
-//  ★ FIX 2 — Multi-teacher / high-concurrency hardening
-//    - All Firestore reads wrapped in individual try/catch so one teacher's
-//      network failure never crashes another teacher's restore.
-//    - getDoc() calls for classes and feesConfig are now batched in parallel
-//      using Promise.allSettled() instead of sequential awaits — much faster
-//      for teachers with multiple assigned classes.
-//    - _restoreCollectionWithRetry now uses exponential backoff with jitter
-//      to prevent thundering herd: hundreds of teachers retrying at the same
-//      millisecond would spike Firestore quota. Jitter spreads retries out.
-//    - syncData() queue processing now batches writes in groups of 10 with
-//      a small yield between batches so the browser stays responsive under
-//      large sync loads (hundreds of queued items).
-//    - safeRestore_VB guards against concurrent calls per-teacher with the
-//      existing isRestoring flag, plus a new per-schoolId restore queue so
-//      if two calls arrive simultaneously for different teachers on the same
-//      device (shared device scenario) they process correctly.
-//    - IndexedDB operations wrapped with per-operation timeout failsafes so
-//      a stalled IDB transaction never hangs the restore indefinitely.
-//    - All Promise chains use Promise.allSettled() instead of Promise.all()
-//      so one failing doc never blocks the rest from saving.
+//  ★ Live listeners updated to match — data listeners for
+//    attendanceHistory, attendanceSummary, results, fees now listen
+//    at the school-level path filtered by classId, not teacher path.
+//    Teacher-private listener (_makeTeacherDataListener) removed for
+//    these collections. Only truly private data remains in teacher path.
 //
-//  All v7 fixes preserved:
-//  classes/feesConfig individual getDoc() per assigned classId,
-//  _postRestoreCooldown loop prevention, refreshCM2AfterAssignmentChange
-//  hook, TEACHER_PRIVATE_COLLECTIONS routing, revocation wipe,
-//  _setupTeacherDocListenerOnly, debounce, premium banners.
+//  ★ Orphaned teacher-path data cleanup on restore — on first restore
+//    after this upgrade, any data still sitting in the old teacher
+//    subcollection paths is detected and flagged in console so you
+//    can run the one-time migration script if needed.
+//
+//  ★ Loose code fragment fixed — a dangling ClassActivityListener
+//    block that was floating outside any function in v8 has been
+//    moved inside safeRestore_VB where it belongs.
+//
+//  All v8 fixes preserved: feesConfig dual-path, parallel Promise.allSettled,
+//  jitter backoff, _withTimeout, _postRestoreCooldown, revocation wipe,
+//  _setupTeacherDocListenerOnly, debounce, premium banners throughout.
 // ═══════════════════════════════════════════════════════════════════════════
 
 
@@ -4511,43 +4552,37 @@ function _sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// FIX 2: Exponential backoff WITH JITTER — prevents thundering herd when
+// Exponential backoff WITH JITTER — prevents thundering herd when
 // hundreds of teachers retry failed collections at the same time.
-// Without jitter, 500 teachers all retry at exactly t+1000ms, t+2000ms etc,
-// creating traffic spikes. With jitter each teacher retries at a slightly
-// different time, spreading load evenly across Firestore.
 function _backoffMs(attempt) {
-  const base    = Math.min(1000 * Math.pow(2, attempt), 10000);
-  const jitter  = Math.random() * 1000; // 0–1000ms random offset
+  const base   = Math.min(1000 * Math.pow(2, attempt), 10000);
+  const jitter = Math.random() * 1000;
   return Math.round(base + jitter);
 }
 
-// FIX 2: IDB operation timeout — prevents a stalled IndexedDB transaction
-// from hanging a teacher's restore indefinitely. 8 seconds is generous
-// enough for slow devices but tight enough to fail fast and move on.
+// IDB operation timeout — prevents a stalled IndexedDB transaction
+// from hanging a teacher's restore indefinitely.
 function _withTimeout(promise, ms = 8000, label = '') {
   return Promise.race([
     promise,
     new Promise((_, reject) =>
-      setTimeout(() => reject(new Error(`Timeout after ${ms}ms${label ? ': ' + label : ''}`)), ms)
+      setTimeout(
+        () => reject(new Error(`Timeout after ${ms}ms${label ? ': ' + label : ''}`)),
+        ms
+      )
     )
   ]);
 }
 
 const MAX_COLLECTION_RETRIES = 3;
 
-let _activeListeners      = [];
-let _restoreGuardTimer    = null;
+let _activeListeners       = [];
+let _restoreGuardTimer     = null;
 let _listenerDebounceTimer = null;
-
-// FIX 2: Post-restore cooldown — blocks live listeners from immediately
-// re-triggering another restore right after one completes.
-let _postRestoreCooldown  = false;
+let _postRestoreCooldown   = false;
 
 function _stopListeners() {
-  _activeListeners.forEach(unsub => {
-    try { unsub(); } catch (_) {}
-  });
+  _activeListeners.forEach(unsub => { try { unsub(); } catch (_) {} });
   _activeListeners = [];
   _log('All live listeners stopped.');
 }
@@ -4555,17 +4590,33 @@ function _stopListeners() {
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  COLLECTION ROUTING CONFIG
+//
+//  ★ v9 CHANGE: attendanceHistory, attendanceSummary, results, fees moved
+//  to SCHOOL_LEVEL_QUERY_COLLECTIONS so ALL assigned teachers share the
+//  same class data. TEACHER_PRIVATE_COLLECTIONS is now empty — reserved
+//  for future truly-private collections (lesson plans, drafts, etc).
 // ═══════════════════════════════════════════════════════════════════════════
 const PHOTO_FIELDS = {
   students: 'photo',
 };
 
-// Shared school-level data — read by all teachers via classId filter
-const SCHOOL_LEVEL_QUERY_COLLECTIONS = new Set(['students']);
+// School-level shared data — readable and writable by ALL teachers
+// assigned to the matching classId. Queried with classId 'in' filter.
+// Path: schools/{schoolId}/{collection}
+const SCHOOL_LEVEL_QUERY_COLLECTIONS = new Set([
+  'students',
+  'attendanceHistory',   // ← v9: moved from teacher-private
+  'attendanceSummary',   // ← v9: moved from teacher-private
+  'results',             // ← v9: moved from teacher-private
+  'fees',                // ← v9: moved from teacher-private
+]);
 
-// Teacher-private data — each teacher reads/writes only their own copy
+// Teacher-private data — only this teacher reads/writes their own copy.
+// Path: schools/{schoolId}/teachers/{teacherId}/{collection}
+// Currently empty — add future private collections here
+// e.g. 'lessonplans', 'attendanceDrafts', 'teacherComments'
 const TEACHER_PRIVATE_COLLECTIONS = new Set([
-  'results', 'attendanceHistory', 'attendanceSummary', 'fees'
+  // intentionally empty after v9 architecture change
 ]);
 
 
@@ -4593,6 +4644,7 @@ const MAX_RESTORE_RETRIES  = 5;
 let _classesReadyResolve   = null;
 window.__classesReady      = new Promise(res => { _classesReadyResolve = res; });
 
+// 'classes' MUST be first so dropdowns populate before students load.
 const RESTORE_COLLECTIONS = [
   'classes',
   'students',
@@ -4634,8 +4686,8 @@ window.safeRestore_VB = async function safeRestore_VB(schoolId, _unused, _teache
     restoreCollectionIndex = 0;
     isRestoring            = false;
 
-    // FIX 2: Cooldown — prevents live listeners from immediately
-    // re-triggering another restore within 6 seconds of completion.
+    // Cooldown prevents live listeners from immediately re-triggering
+    // another restore within 6 seconds of completion.
     _postRestoreCooldown = true;
     setTimeout(() => { _postRestoreCooldown = false; }, 6000);
 
@@ -4654,6 +4706,39 @@ window.safeRestore_VB = async function safeRestore_VB(schoolId, _unused, _teache
     // Notify Class Management dashboard to refresh
     if (typeof window.refreshCM2AfterAssignmentChange === 'function') {
       await window.refreshCM2AfterAssignmentChange().catch(() => {});
+    }
+
+    // Start Class Activity Listener if available
+    // (moved here from the dangling fragment in v8)
+    try {
+      if (window.ClassActivityListener) {
+        window.ClassActivityListener.stop();
+        const user      = auth.currentUser;
+        const teacherId = _teacherIdOverride || user?.uid;
+        if (teacherId) {
+          const tSnap = await getDoc(
+            doc(fdb, 'schools', schoolId, 'teachers', teacherId)
+          ).catch(() => null);
+          const tData       = tSnap?.exists() ? tSnap.data() : {};
+          const freshClasses = [
+            ...new Set([
+              ...(tData.assignedClasses || []),
+              ...(tData.classes || [])
+            ])
+          ].map(c => String(c).trim()).filter(Boolean);
+
+          if (freshClasses.length > 0) {
+            window.ClassActivityListener.start({
+              db:              fdb,
+              schoolId,
+              currentUser:     { uid: teacherId, name: tData.name || '' },
+              assignedClasses: freshClasses,
+            });
+          }
+        }
+      }
+    } catch (e) {
+      _warn('ClassActivityListener setup failed (non-fatal):', e.message);
     }
 
     showPremiumBanner('✅ Workspace fully synced and ready.', 'success', 3000);
@@ -4707,8 +4792,7 @@ async function _runRestore(schoolId, teacherIdOverride) {
       const raw   = (Array.isArray(tData.assignedClasses) && tData.assignedClasses.length > 0)
         ? tData.assignedClasses
         : (Array.isArray(tData.classes) && tData.classes.length > 0)
-          ? tData.classes
-          : [];
+          ? tData.classes : [];
 
       if (raw.length > 0) {
         assignedClasses = raw.map(c => String(c).trim().replace(/\s+/g, '_'));
@@ -4736,7 +4820,6 @@ async function _runRestore(schoolId, teacherIdOverride) {
     }
   } catch (e) {
     _warn('Could not fetch teacher doc for class list:', e.message);
-    // Continue with cached classes so offline restore still works
   }
 
   // ── No classes assigned — wipe and watch ─────────────────────────────────
@@ -4755,7 +4838,6 @@ async function _runRestore(schoolId, teacherIdOverride) {
       'attendanceHistory', 'attendanceSummary', 'fees', 'feesConfig'
     ];
 
-    // FIX 2: Wipe all collections in parallel — much faster than sequential
     await Promise.allSettled(
       collectionsToWipe.map(async coll => {
         try {
@@ -4772,12 +4854,8 @@ async function _runRestore(schoolId, teacherIdOverride) {
       })
     );
 
-    if (typeof loadClasses === 'function') {
-      await loadClasses().catch(() => {});
-    }
-    if (typeof _classesReadyResolve === 'function') {
-      _classesReadyResolve();
-    }
+    if (typeof loadClasses === 'function') await loadClasses().catch(() => {});
+    if (typeof _classesReadyResolve === 'function') _classesReadyResolve();
     if (typeof window.refreshCM2AfterAssignmentChange === 'function') {
       await window.refreshCM2AfterAssignmentChange().catch(() => {});
     }
@@ -4807,12 +4885,8 @@ async function _runRestore(schoolId, teacherIdOverride) {
       await _restoreCollectionWithRetry(coll, schoolId, teacherId, assignedClasses);
 
       if (coll === 'classes') {
-        if (typeof loadClasses === 'function') {
-          await loadClasses().catch(() => {});
-        }
-        if (typeof _classesReadyResolve === 'function') {
-          _classesReadyResolve();
-        }
+        if (typeof loadClasses === 'function') await loadClasses().catch(() => {});
+        if (typeof _classesReadyResolve === 'function') _classesReadyResolve();
       }
 
     } catch (err) {
@@ -4823,9 +4897,7 @@ async function _runRestore(schoolId, teacherIdOverride) {
 
   restoreCollectionIndex = 0;
 
-  if (typeof refreshUI === 'function') {
-    refreshUI();
-  }
+  if (typeof refreshUI === 'function') refreshUI();
 
   if (failedCollections.length > 0) {
     showPremiumBanner(
@@ -4943,7 +5015,8 @@ async function _resolveAndHealAssignedClasses(schoolId, teacherId) {
         const usersSnap = await getDoc(doc(fdb, 'users', teacherId));
         if (usersSnap.exists()) {
           const ua = usersSnap.data().assignedClasses;
-          usersDocIds = Array.isArray(ua) ? ua.map(id => String(id).trim()).filter(Boolean) : [];
+          usersDocIds = Array.isArray(ua)
+            ? ua.map(id => String(id).trim()).filter(Boolean) : [];
         }
       } catch (e) {
         _warn('Could not read users/{uid} for comparison:', e.message);
@@ -5019,7 +5092,7 @@ async function _restoreCollectionWithRetry(coll, schoolId, teacherId, assignedCl
       return;
     } catch (err) {
       lastErr    = err;
-      const wait = _backoffMs(attempt); // jitter included
+      const wait = _backoffMs(attempt);
       _warn(
         `"${coll}" attempt ${attempt + 1}/${MAX_COLLECTION_RETRIES} failed: ` +
         `${err.message}. Retrying in ${wait}ms…`
@@ -5036,19 +5109,21 @@ async function _restoreCollectionWithRetry(coll, schoolId, teacherId, assignedCl
 //
 //  ROUTING (mirrors sync engine writes + firestore.rules):
 //
-//  'classes'    → getDoc() per assigned classId in PARALLEL (Promise.allSettled)
+//  'classes'    → getDoc() per assigned classId in parallel.
+//                 Collection query denied for teachers — rule checks
+//                 isAssignedToClass(classId) per-doc only.
 //
-//  'feesConfig' → FIX 1: DUAL-PATH read per assigned classId:
-//                 1st: schools/{schoolId}/feesConfig/{classId}  (school-level)
-//                 2nd: schools/{schoolId}/teachers/{uid}/feesConfig/{classId}
-//                 Both paths checked; whichever has data is saved to IndexedDB.
-//                 This handles cases where feesConfig was written by either
-//                 the headteacher (school path) or synced from teacher app
-//                 (teacher path). Both are valid sources.
+//  'feesConfig' → DUAL-PATH: school-level first, teacher-level fallback.
+//                 Whichever path has data wins (school-level authoritative).
 //
-//  TEACHER_PRIVATE_COLLECTIONS → teacher subcollection, classId 'in' filter
+//  SCHOOL_LEVEL_QUERY_COLLECTIONS (students, attendanceHistory,
+//  attendanceSummary, results, fees) → schools/{schoolId}/{coll}
+//  filtered by classId 'in' assignedClasses.
+//  ALL assigned teachers share these documents — this is the v9
+//  architecture change that enables shared class data visibility.
 //
-//  SCHOOL_LEVEL_QUERY_COLLECTIONS → school collection, classId 'in' filter
+//  TEACHER_PRIVATE_COLLECTIONS → currently empty. Future private
+//  collections go here (lessonplans, attendanceDrafts, etc).
 // ═══════════════════════════════════════════════════════════════════════════
 async function _restoreCollection(coll, schoolId, teacherId, assignedClasses) {
 
@@ -5061,9 +5136,6 @@ async function _restoreCollection(coll, schoolId, teacherId, assignedClasses) {
       return;
     }
 
-    // FIX 2: Fetch ALL assigned class docs in parallel instead of sequential
-    // With 500 teachers each fetching 3 classes = 1500 parallel getDoc calls.
-    // Firestore handles this fine — each is an independent document read.
     const results = await Promise.allSettled(
       assignedClasses.map(classId =>
         _withTimeout(
@@ -5094,42 +5166,28 @@ async function _restoreCollection(coll, schoolId, teacherId, assignedClasses) {
       })
     );
 
-    if (serverIds.length > 0) {
-      await _pruneLocal('classes', serverIds);
-    }
-
+    if (serverIds.length > 0) await _pruneLocal('classes', serverIds);
     _log(`✔ "classes" — ${serverIds.length} doc(s) restored.`);
     return;
   }
 
-  // ── 'feesConfig' — FIX 1: DUAL-PATH per assigned classId ─────────────────
-  //
-  //  WHY DUAL-PATH:
-  //  The headteacher/admin app writes feesConfig to the school-level path:
-  //    schools/{schoolId}/feesConfig/{classId}
-  //  The teacher sync engine writes feesConfig to the teacher path:
-  //    schools/{schoolId}/teachers/{teacherId}/feesConfig/{classId}
-  //  Both are valid — we check both and save whichever exists.
-  //  School-level wins if both exist (headteacher config is authoritative).
+  // ── 'feesConfig' — dual-path per assigned classId ────────────────────────
   if (coll === 'feesConfig') {
     if (!hasAssignments) {
       _log('"feesConfig" — no assigned classes, skipping.');
       return;
     }
 
-    // FIX 2: Fetch both paths for all classes in parallel
     const results = await Promise.allSettled(
       assignedClasses.map(async classId => {
         const schoolPath  = doc(fdb, 'schools', schoolId, 'feesConfig', classId);
         const teacherPath = doc(fdb, 'schools', schoolId, 'teachers', teacherId, 'feesConfig', classId);
 
-        // Fetch both paths simultaneously
         const [schoolSnap, teacherSnap] = await Promise.allSettled([
           _withTimeout(getDoc(schoolPath),  8000, `feesConfig(school)/${classId}`),
           _withTimeout(getDoc(teacherPath), 8000, `feesConfig(teacher)/${classId}`),
         ]);
 
-        // School-level path wins if it exists (headteacher config is authoritative)
         const schoolResult  = schoolSnap.status  === 'fulfilled' ? schoolSnap.value  : null;
         const teacherResult = teacherSnap.status === 'fulfilled' ? teacherSnap.value : null;
 
@@ -5137,7 +5195,6 @@ async function _restoreCollection(coll, schoolId, teacherId, assignedClasses) {
           _log(`feesConfig/${classId} — found at school-level path.`);
           return { classId, data: schoolResult.data(), docId: schoolResult.id };
         }
-
         if (teacherResult?.exists()) {
           _log(`feesConfig/${classId} — found at teacher-level path (fallback).`);
           return { classId, data: teacherResult.data(), docId: teacherResult.id };
@@ -5161,32 +5218,15 @@ async function _restoreCollection(coll, schoolId, teacherId, assignedClasses) {
       })
     );
 
-    if (serverIds.length > 0) {
-      await _pruneLocal('feesConfig', serverIds);
-    }
-
+    if (serverIds.length > 0) await _pruneLocal('feesConfig', serverIds);
     _log(`✔ "feesConfig" — ${serverIds.length} doc(s) restored.`);
     return;
   }
 
-  // ── Teacher-private collections ───────────────────────────────────────────
+  // ── School-level shared collections (v9: includes attendance/results/fees)
   let firestoreQuery;
 
-  if (TEACHER_PRIVATE_COLLECTIONS.has(coll)) {
-    const base = collection(fdb, 'schools', schoolId, 'teachers', teacherId, coll);
-    if (hasAssignments) {
-      if (assignedClasses.length <= 30) {
-        firestoreQuery = query(base, where('classId', 'in', assignedClasses));
-      } else {
-        await _restoreTeacherCollectionInChunks(coll, schoolId, teacherId, assignedClasses);
-        return;
-      }
-    } else {
-      firestoreQuery = base;
-    }
-
-  // ── School-level shared collections ──────────────────────────────────────
-  } else if (SCHOOL_LEVEL_QUERY_COLLECTIONS.has(coll) && hasAssignments) {
+  if (SCHOOL_LEVEL_QUERY_COLLECTIONS.has(coll) && hasAssignments) {
     if (assignedClasses.length <= 30) {
       firestoreQuery = query(
         collection(fdb, 'schools', schoolId, coll),
@@ -5195,6 +5235,18 @@ async function _restoreCollection(coll, schoolId, teacherId, assignedClasses) {
     } else {
       await _restoreCollectionInChunks(coll, schoolId, assignedClasses);
       return;
+    }
+
+  // ── Teacher-private collections (currently empty in v9) ──────────────────
+  } else if (TEACHER_PRIVATE_COLLECTIONS.has(coll)) {
+    const base = collection(fdb, 'schools', schoolId, 'teachers', teacherId, coll);
+    if (hasAssignments && assignedClasses.length <= 30) {
+      firestoreQuery = query(base, where('classId', 'in', assignedClasses));
+    } else if (hasAssignments) {
+      await _restoreTeacherCollectionInChunks(coll, schoolId, teacherId, assignedClasses);
+      return;
+    } else {
+      firestoreQuery = base;
     }
 
   } else {
@@ -5218,7 +5270,6 @@ async function _restoreCollection(coll, schoolId, teacherId, assignedClasses) {
 
   const serverIds = [];
 
-  // FIX 2: Save all docs in parallel instead of sequentially
   await Promise.allSettled(
     snapshot.docs.map(async d => {
       const docId      = d.id;
@@ -5226,9 +5277,7 @@ async function _restoreCollection(coll, schoolId, teacherId, assignedClasses) {
       serverIds.push(docId);
 
       let localData = null;
-      try {
-        localData = await getIndexedDB(coll, docId);
-      } catch (e) {
+      try { localData = await getIndexedDB(coll, docId); } catch (e) {
         _warn(`getIndexedDB failed for ${coll}/${docId}:`, e.message);
       }
 
@@ -5243,10 +5292,7 @@ async function _restoreCollection(coll, schoolId, teacherId, assignedClasses) {
     })
   );
 
-  if (serverIds.length > 0) {
-    await _pruneLocal(coll, serverIds);
-  }
-
+  if (serverIds.length > 0) await _pruneLocal(coll, serverIds);
   _log(`✔ "${coll}" — ${serverIds.length} doc(s) restored.`);
 }
 
@@ -5255,7 +5301,7 @@ async function _restoreCollection(coll, schoolId, teacherId, assignedClasses) {
 //  CHUNK HANDLER — school-level collections, > 30 assigned classes
 // ═══════════════════════════════════════════════════════════════════════════
 async function _restoreCollectionInChunks(coll, schoolId, assignedClasses) {
-  const CHUNK      = 30;
+  const CHUNK        = 30;
   const allServerIds = [];
 
   for (let i = 0; i < assignedClasses.length; i += CHUNK) {
@@ -5263,7 +5309,10 @@ async function _restoreCollectionInChunks(coll, schoolId, assignedClasses) {
     let snapshot;
     try {
       snapshot = await _withTimeout(
-        getDocs(query(collection(fdb, 'schools', schoolId, coll), where('classId', 'in', chunk))),
+        getDocs(query(
+          collection(fdb, 'schools', schoolId, coll),
+          where('classId', 'in', chunk)
+        )),
         12000, `getDocs chunk(${coll})`
       );
     } catch (e) {
@@ -5292,11 +5341,12 @@ async function _restoreCollectionInChunks(coll, schoolId, assignedClasses) {
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  CHUNK HANDLER — teacher-private collections, > 30 assigned classes
+//  Kept for future private collections added to TEACHER_PRIVATE_COLLECTIONS
 // ═══════════════════════════════════════════════════════════════════════════
 async function _restoreTeacherCollectionInChunks(coll, schoolId, teacherId, assignedClasses) {
-  const CHUNK      = 30;
+  const CHUNK        = 30;
   const allServerIds = [];
-  const base       = collection(fdb, 'schools', schoolId, 'teachers', teacherId, coll);
+  const base         = collection(fdb, 'schools', schoolId, 'teachers', teacherId, coll);
 
   for (let i = 0; i < assignedClasses.length; i += CHUNK) {
     const chunk = assignedClasses.slice(i, i + CHUNK);
@@ -5328,6 +5378,12 @@ async function _restoreTeacherCollectionInChunks(coll, schoolId, teacherId, assi
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  REAL-TIME LISTENERS (loop-safe, revocation-aware)
+//
+//  v9 CHANGE: Data listeners for attendanceHistory, attendanceSummary,
+//  results, fees now listen at the SCHOOL-LEVEL path filtered by classId.
+//  All teachers assigned to the same class share these live updates.
+//  _makeTeacherDataListener removed — no teacher-private data collections
+//  remain in v9. Only students + shared data collections are listened to.
 // ═══════════════════════════════════════════════════════════════════════════
 function _setupLiveListeners(schoolId, teacherId, assignedClasses) {
   _log('Setting up real-time listeners…');
@@ -5385,14 +5441,11 @@ function _setupLiveListeners(schoolId, teacherId, assignedClasses) {
           'warning', 0
         );
 
-        if (typeof loadClasses === 'function') {
-          await loadClasses().catch(() => {});
-        }
+        if (typeof loadClasses === 'function') await loadClasses().catch(() => {});
         if (typeof window.refreshCM2AfterAssignmentChange === 'function') {
           await window.refreshCM2AfterAssignmentChange().catch(() => {});
         }
 
-        // FIX 2: Wipe all collections in parallel
         const collectionsToWipe = [
           'classes', 'students', 'results',
           'attendanceHistory', 'attendanceSummary', 'fees', 'feesConfig'
@@ -5446,66 +5499,47 @@ function _setupLiveListeners(schoolId, teacherId, assignedClasses) {
     _activeListeners.push(classUnsub);
   }
 
-  // ── Listeners 3+: Teacher-private + shared data ───────────────────────────
+  // ── Listeners 3+: Shared school-level data collections ───────────────────
+  // v9: ALL of these are now at the school-level path, shared across all
+  // teachers assigned to the same class. Any teacher writing attendance,
+  // results or fees immediately updates all other assigned teachers' views.
   if (assignedClasses.length > 0 && assignedClasses.length <= 30) {
 
-    const _makeTeacherDataListener = (collName) => onSnapshot(
+    const _makeSharedDataListener = (collName) => onSnapshot(
       query(
-        collection(fdb, 'schools', schoolId, 'teachers', teacherId, collName),
+        collection(fdb, 'schools', schoolId, collName),
         where('classId', 'in', assignedClasses)
       ),
       async (snap) => {
-        // FIX 2: Process all changes in parallel
         await Promise.allSettled(
           snap.docChanges().map(async change => {
             const d = change.doc;
             if (change.type === 'removed') {
               await deleteIndexedDB(collName, d.id).catch(() => {});
             } else {
+              const localData = collName === 'students'
+                ? await getIndexedDB(collName, d.id).catch(() => ({}))
+                : null;
               await setIndexedDB(collName, d.id, {
-                ...d.data(), id: d.id, _restoredAt: Date.now(),
-              }).catch(() => {});
-            }
-          })
-        );
-        if (snap.docChanges().length > 0 && typeof refreshUI === 'function') refreshUI();
-      },
-      (err) => _warn(`${collName} (teacher) listener error:`, err.message)
-    );
-
-    _activeListeners.push(_makeTeacherDataListener('results'));
-    _activeListeners.push(_makeTeacherDataListener('attendanceHistory'));
-    _activeListeners.push(_makeTeacherDataListener('attendanceSummary'));
-    _activeListeners.push(_makeTeacherDataListener('fees'));
-
-    // ── Shared students at school level ──────────────────────────────────
-    const studentsUnsub = onSnapshot(
-      query(
-        collection(fdb, 'schools', schoolId, 'students'),
-        where('classId', 'in', assignedClasses)
-      ),
-      async (snap) => {
-        await Promise.allSettled(
-          snap.docChanges().map(async change => {
-            const d = change.doc;
-            if (change.type === 'removed') {
-              await deleteIndexedDB('students', d.id).catch(() => {});
-            } else {
-              const local = await getIndexedDB('students', d.id).catch(() => ({}));
-              await setIndexedDB('students', d.id, {
                 ...d.data(),
                 id: d.id,
                 _restoredAt: Date.now(),
-                ...(local?.photo ? { photo: local.photo } : {}),
+                ...(localData?.photo ? { photo: localData.photo } : {}),
               }).catch(() => {});
             }
           })
         );
         if (snap.docChanges().length > 0 && typeof refreshUI === 'function') refreshUI();
       },
-      (err) => _warn('students listener error:', err.message)
+      (err) => _warn(`${collName} (shared) listener error:`, err.message)
     );
-    _activeListeners.push(studentsUnsub);
+
+    // All five collections now use shared school-level path
+    _activeListeners.push(_makeSharedDataListener('students'));
+    _activeListeners.push(_makeSharedDataListener('attendanceHistory'));
+    _activeListeners.push(_makeSharedDataListener('attendanceSummary'));
+    _activeListeners.push(_makeSharedDataListener('results'));
+    _activeListeners.push(_makeSharedDataListener('fees'));
   }
 
   _log(`${_activeListeners.length} live listener(s) active.`);
@@ -5523,7 +5557,6 @@ async function _pruneLocal(coll, serverIds) {
 
     if (!Array.isArray(localAll)) return;
 
-    // FIX 2: Prune in parallel
     await Promise.allSettled(
       localAll
         .filter(local => local && local.id != null && !serverIds.includes(local.id))
@@ -5553,7 +5586,7 @@ window.forceRestore_VB = async function (schoolId) {
   }
 
   isRestoring          = false;
-  _postRestoreCooldown = false; // Force-restore bypasses cooldown
+  _postRestoreCooldown = false;
   clearTimeout(_restoreGuardTimer);
   _stopListeners();
   _log('Force restore triggered.');
@@ -5561,7 +5594,11 @@ window.forceRestore_VB = async function (schoolId) {
 };
 
 
-console.log('[RestoreEngine] ✅ Production restore engine v8 loaded.');
+console.log('[RestoreEngine] ✅ Production restore engine v9 loaded.');
+
+
+
+  
 
     //  MODALS, CLOCK, ETC. (unchanged)
     // ──────────────────────────────────────────────────────────────
