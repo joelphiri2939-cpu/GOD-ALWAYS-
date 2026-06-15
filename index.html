@@ -12976,7 +12976,13 @@ window.clearFeesInputs = function() {
 };
 
 
-window.saveFeesConfig = async function() {
+
+      
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  saveFeesConfig  — fixed
+// ─────────────────────────────────────────────────────────────────────────────
+window.saveFeesConfig = async function () {
   showLoading('Saving fees configuration...');
   try {
     const classSelect = document.getElementById('fees-class');
@@ -12989,26 +12995,33 @@ window.saveFeesConfig = async function() {
     if (!totalFeesInput) return alert('Total fees input not found');
 
     const totalAmount = parseFloat(totalFeesInput.value);
-    if (isNaN(totalAmount) || totalAmount <= 0) return alert('Enter a valid positive total fees amount');
+    if (isNaN(totalAmount) || totalAmount <= 0)
+      return alert('Enter a valid positive total fees amount');
 
-    // Prepare the feesConfig object
     const now = new Date().toISOString();
-    const feesConfigData = { id: className, totalAmount, updatedAt: now };
 
-    // Save into IndexedDB
+    // ── FIX: stamp schoolId + teacherId + owner ───────────────────────────
+    const feesConfigData = {
+      id:          className,
+      totalAmount,
+      schoolId:    schoolId  || '',
+      teacherId:   currentUser?.uid || auth?.currentUser?.uid || '',
+      owner:       currentUser?.uid || auth?.currentUser?.uid || '',
+      updatedAt:   now,
+    };
+
     await setIndexedDB('feesConfig', className, feesConfigData);
 
-// Add to sync queue if syncing is used (guarded)
-if (typeof addToSyncQueue === 'function') {
-  await guardedAddToSyncQueue(`feesConfig/${className}`, 'set', feesConfigData);
-  guardedTriggerSync();
-}
+    // ── FIX: use addToSyncQueue directly — same as attendance/results ─────
+    await addToSyncQueue(`feesConfig/${className}`, 'set', feesConfigData);
+    triggerSync();
 
-    // Reset all input amounts and statuses to Not Paid
     const tbody = document.querySelector('#fees-table tbody');
     if (tbody) {
       tbody.querySelectorAll('input[type="number"]').forEach(inp => inp.value = '');
-      tbody.querySelectorAll('.status-cell').forEach(cell => cell.innerHTML = '<span class="unpaid">Not Paid Yet ❌</span>');
+      tbody.querySelectorAll('.status-cell').forEach(cell => {
+        cell.innerHTML = '<span class="unpaid">Not Paid Yet ❌</span>';
+      });
     }
 
     alert(`Total fees set to ${totalAmount} ZMW for ${className}`);
@@ -13021,17 +13034,18 @@ if (typeof addToSyncQueue === 'function') {
 };
 
 
-
-
-window.saveFees = async function() {
+// ─────────────────────────────────────────────────────────────────────────────
+//  saveFees  — fixed
+// ─────────────────────────────────────────────────────────────────────────────
+window.saveFees = async function () {
   showLoading('Saving fees...');
   try {
     const className = document.getElementById('fees-class').value;
     if (!className) return alert('Select a class');
 
-    // Get total fees for class and ensure it's a number
     const feesConfig = await getIndexedDB('feesConfig', className);
-    const totalFees = feesConfig && !isNaN(feesConfig.totalAmount) ? Number(feesConfig.totalAmount) : 0;
+    const totalFees  = feesConfig && !isNaN(feesConfig.totalAmount)
+      ? Number(feesConfig.totalAmount) : 0;
 
     if (totalFees <= 0) {
       alert('Total fees for this class is not set or invalid');
@@ -13039,36 +13053,46 @@ window.saveFees = async function() {
       return;
     }
 
-    const inputs = document.querySelectorAll('#fees-table input[type="number"]');
-    let hasInput = false;
-    const date = new Date().toISOString();
-    const tolerance = 0.001; // same as updateFeeStatus
+    const inputs    = document.querySelectorAll('#fees-table input[type="number"]');
+    const date      = new Date().toISOString();
+    const tolerance = 0.001;
+    const tid       = currentUser?.uid || auth?.currentUser?.uid || '';
+    let hasInput    = false;
 
     for (const inp of inputs) {
-      const amount = parseFloat(inp.value);
+      const amount    = parseFloat(inp.value);
       const studentId = sanitizeKey(inp.dataset.id);
 
       if (!isNaN(amount) && amount > 0) {
         hasInput = true;
 
-        let fee = await getIndexedDB('fees', studentId);
-        if (!fee) fee = { id: studentId, payments: [], classId: className, updatedAt: date };
+        // ── FIX: always start from a fresh base with guaranteed classId,
+        //    schoolId, teacherId, owner — don't inherit a stale old record
+        //    that may be missing classId from before v9. Merge payments
+        //    from the old record if it exists. ──────────────────────────
+        const existingFee = await getIndexedDB('fees', studentId);
+        const existingPayments = Array.isArray(existingFee?.payments)
+          ? existingFee.payments : [];
 
-        // Strict numeric comparison with tolerance
         let status = '';
-        if (Math.abs(amount - totalFees) <= tolerance) status = 'fullypaid';
-        else if (amount > totalFees + tolerance) status = 'overpaid';
-        else if (amount < totalFees - tolerance) status = 'outstanding';
+        if      (Math.abs(amount - totalFees) <= tolerance) status = 'fullypaid';
+        else if (amount > totalFees + tolerance)             status = 'overpaid';
+        else                                                  status = 'outstanding';
 
-        fee.payments.push({ amount, date, status });
-        fee.updatedAt = date;
+        const fee = {
+          id:         studentId,
+          classId:    className,   // ← ALWAYS stamped fresh — restore engine filters on this
+          schoolId:   schoolId  || '',
+          teacherId:  tid,
+          owner:      tid,
+          payments:   [...existingPayments, { amount, date, status }],
+          updatedAt:  date,
+        };
 
         await setIndexedDB('fees', studentId, fee);
 
-        // Guarded sync
-        if (typeof guardedAddToSyncQueue === 'function') {
-          await guardedAddToSyncQueue(`fees/${studentId}`, 'set', fee);
-        }
+        // ── FIX: use addToSyncQueue directly — same as attendance/results ─
+        await addToSyncQueue(`fees/${studentId}`, 'set', fee);
       }
     }
 
@@ -13078,7 +13102,8 @@ window.saveFees = async function() {
       return;
     }
 
-    if (typeof guardedTriggerSync === 'function') guardedTriggerSync();
+    // ── FIX: single triggerSync AFTER the loop, not inside it ────────────
+    triggerSync();
 
     alert('Fees saved successfully');
     clearFeesInputs();
@@ -13091,7 +13116,6 @@ window.saveFees = async function() {
     hideLoading();
   }
 };
-
 
 
 
@@ -13600,76 +13624,97 @@ async function waitForCore() {
 
 
 
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  saveResults  — fixed
+// ─────────────────────────────────────────────────────────────────────────────
 window.saveResults = async function () {
-      const classEl = document.getElementById('results-class');
-      const subjectEl = document.getElementById('subject');
-      const testNameEl = document.getElementById('test-name');
-      const dateEl = document.getElementById('test-date');
-      const categoryEl = document.getElementById('test-category');
-      const levelEl = document.getElementById('results-level');
-      if (!classEl || !subjectEl || !testNameEl || !categoryEl || !levelEl) return showToast('Missing UI elements', 'error');
+  const classEl    = document.getElementById('results-class');
+  const subjectEl  = document.getElementById('subject');
+  const testNameEl = document.getElementById('test-name');
+  const dateEl     = document.getElementById('test-date');
+  const categoryEl = document.getElementById('test-category');
+  const levelEl    = document.getElementById('results-level');
 
-      const className = classEl.value.trim();
-      const subject = subjectEl.value.trim();
-      const testName = testNameEl.value.trim();
-      const date = (dateEl && dateEl.value) ? dateEl.value : todayString();
-      const category = categoryEl.value;
-      const level = levelEl.value;
+  if (!classEl || !subjectEl || !testNameEl || !categoryEl || !levelEl)
+    return showToast('Missing UI elements', 'error');
 
-      if (!className || !subject || !testName || !category || !level) return showToast('Fill all required fields including level', 'error');
-      if (subject.includes('/') || testName.includes('/')) return showToast('Subject or Test Name cannot contain "/"', 'error');
+  const className = classEl.value.trim();
+  const subject   = subjectEl.value.trim();
+  const testName  = testNameEl.value.trim();
+  const date      = (dateEl && dateEl.value) ? dateEl.value : todayString();
+  const category  = categoryEl.value;
+  const level     = levelEl.value;
 
-      const inputs = Array.from(document.querySelectorAll('#results-table .result-input'));
-      const scores = {};
-      for (const inp of inputs) {
-        const raw = (inp.value ?? '').toString().trim();
-        if (raw === '') continue;
-        const parsed = Number(raw);
-        if (isNaN(parsed) || parsed < 0 || parsed > 100) return showToast('Scores must be numbers between 0 and 100', 'error');
-        const sid = inp.dataset.id;
-        if (!sid || !sid.trim()) {
-          console.warn('Skipping score for empty student ID');
-          continue; // Skip empty student IDs to prevent invalid scores object keys
-        }
-        scores[sid] = round2(parsed);
-      }
-      if (Object.keys(scores).length === 0) return showToast('Enter at least one score', 'error');
+  if (!className || !subject || !testName || !category || !level)
+    return showToast('Fill all required fields including level', 'error');
+  if (subject.includes('/') || testName.includes('/'))
+    return showToast('Subject or Test Name cannot contain "/"', 'error');
 
-      const recordId = `${key(className)}-${key(subject)}-${key(category)}-${key(testName)}-${Date.now()}`; // Enhanced: append timestamp to avoid collisions
-      const now = new Date().toISOString();
-      const record = {
-        id: recordId,
-        classId: className,
-        subject,
-        testName,
-        category,
-        level,
-        date,
-        scores,
-        createdAt: now,
-        updatedAt: now
-      };
+  const inputs = Array.from(document.querySelectorAll('#results-table .result-input'));
+  const scores  = {};
 
-      try {
-        showLoading('Saving results...');
-        await setIndexedDB('results', recordId, record);
-        await addToSyncQueue(`results/${recordId}`, 'set', record);
-        triggerSync();
-        hideLoading();
-        showToast('✅ Results saved successfully', 'success');
-        // Reset some form elements but keep class for convenience
-        subjectEl.value = '';
-        testNameEl.value = '';
-        if (dateEl) dateEl.value = '';
-        levelEl.value = '';
-        await loadResultsStudents();
-      } catch (err) {
-        console.error('saveResults error', err);
-        hideLoading();
-        showToast('⚠️ Failed to save results', 'error');
-      }
-    };
+  for (const inp of inputs) {
+    const raw    = (inp.value ?? '').toString().trim();
+    if (raw === '') continue;
+    const parsed = Number(raw);
+    if (isNaN(parsed) || parsed < 0 || parsed > 100)
+      return showToast('Scores must be numbers between 0 and 100', 'error');
+    const sid = inp.dataset.id;
+    if (!sid || !sid.trim()) {
+      console.warn('Skipping score for empty student ID');
+      continue;
+    }
+    scores[sid] = round2(parsed);
+  }
 
+  if (Object.keys(scores).length === 0)
+    return showToast('Enter at least one score', 'error');
+
+  const recordId = `${key(className)}-${key(subject)}-${key(category)}-${key(testName)}-${Date.now()}`;
+  const now      = new Date().toISOString();
+
+  // ── FIX: stamp schoolId + teacherId + owner so the restore engine's
+  //    where('classId','in',...) query finds this doc, AND so the
+  //    cross-teacher activity banner knows who wrote it. ──────────────────
+  const record = {
+    id:        recordId,
+    classId:   className,          // ← restore engine filters on this
+    subject,
+    testName,
+    category,
+    level,
+    date,
+    scores,
+    schoolId:  schoolId  || '',    // ← global from app init
+    teacherId: currentUser?.uid || auth?.currentUser?.uid || '',
+    owner:     currentUser?.uid || auth?.currentUser?.uid || '',
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  try {
+    showLoading('Saving results...');
+    await setIndexedDB('results', recordId, record);
+    await addToSyncQueue(`results/${recordId}`, 'set', record);
+    triggerSync();
+    hideLoading();
+    showToast('✅ Results saved successfully', 'success');
+
+    subjectEl.value = '';
+    testNameEl.value = '';
+    if (dateEl) dateEl.value = '';
+    levelEl.value = '';
+    await loadResultsStudents();
+  } catch (err) {
+    console.error('saveResults error', err);
+    hideLoading();
+    showToast('⚠️ Failed to save results', 'error');
+  }
+};
+
+        
 
 
 
