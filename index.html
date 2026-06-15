@@ -4443,37 +4443,17 @@ console.log('[SyncEngine] ✅ Production sync engine v7 loaded.');
 
 
 
-// ═══════════════════════════════════════════════════════════════════════════
-//  TEACHMATE 3.0 — RESTORE ENGINE  v9  (Production-Final)
+  // ═══════════════════════════════════════════════════════════════════════════
+//  TEACHMATE 3.0 — RESTORE ENGINE  v9.1  (Production-Final)
+//  + Cross-Teacher Activity Banner (real name resolution + cinematic UI)
 //
-//  CHANGES IN v9:
-//
-//  ★ ARCHITECTURE CHANGE — Shared class data
-//    attendanceHistory, attendanceSummary, results, fees moved from
-//    TEACHER_PRIVATE_COLLECTIONS to SCHOOL_LEVEL_QUERY_COLLECTIONS.
-//    All teachers assigned to the same class now read/write the same
-//    shared documents at schools/{schoolId}/{collection}.
-//    This means Teacher A and Teacher B both assigned to grade6_orange
-//    see identical attendance, results, and fees for that class.
-//
-//  ★ Live listeners updated to match — data listeners for
-//    attendanceHistory, attendanceSummary, results, fees now listen
-//    at the school-level path filtered by classId, not teacher path.
-//    Teacher-private listener (_makeTeacherDataListener) removed for
-//    these collections. Only truly private data remains in teacher path.
-//
-//  ★ Orphaned teacher-path data cleanup on restore — on first restore
-//    after this upgrade, any data still sitting in the old teacher
-//    subcollection paths is detected and flagged in console so you
-//    can run the one-time migration script if needed.
-//
-//  ★ Loose code fragment fixed — a dangling ClassActivityListener
-//    block that was floating outside any function in v8 has been
-//    moved inside safeRestore_VB where it belongs.
-//
-//  All v8 fixes preserved: feesConfig dual-path, parallel Promise.allSettled,
-//  jitter backoff, _withTimeout, _postRestoreCooldown, revocation wipe,
-//  _setupTeacherDocListenerOnly, debounce, premium banners throughout.
+//  CHANGES IN v9.1:
+//  ★ Real teacher name fetched from Firestore teachers subcollection
+//  ★ _resolveTeacherName now async + receives schoolId for live lookup
+//  ★ _notifyCrossTeacherActivity passes schoolId through
+//  ★ Cinematic fiction-grade cross-teacher banner UI
+//  ★ Enhanced premium banner copy (emoji-rich, story-driven)
+//  (All restore / sync logic unchanged from v9)
 // ═══════════════════════════════════════════════════════════════════════════
 
 
@@ -4552,16 +4532,12 @@ function _sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// Exponential backoff WITH JITTER — prevents thundering herd when
-// hundreds of teachers retry failed collections at the same time.
 function _backoffMs(attempt) {
   const base   = Math.min(1000 * Math.pow(2, attempt), 10000);
   const jitter = Math.random() * 1000;
   return Math.round(base + jitter);
 }
 
-// IDB operation timeout — prevents a stalled IndexedDB transaction
-// from hanging a teacher's restore indefinitely.
 function _withTimeout(promise, ms = 8000, label = '') {
   return Promise.race([
     promise,
@@ -4590,34 +4566,546 @@ function _stopListeners() {
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  COLLECTION ROUTING CONFIG
-//
-//  ★ v9 CHANGE: attendanceHistory, attendanceSummary, results, fees moved
-//  to SCHOOL_LEVEL_QUERY_COLLECTIONS so ALL assigned teachers share the
-//  same class data. TEACHER_PRIVATE_COLLECTIONS is now empty — reserved
-//  for future truly-private collections (lesson plans, drafts, etc).
 // ═══════════════════════════════════════════════════════════════════════════
 const PHOTO_FIELDS = {
   students: 'photo',
 };
 
-// School-level shared data — readable and writable by ALL teachers
-// assigned to the matching classId. Queried with classId 'in' filter.
-// Path: schools/{schoolId}/{collection}
 const SCHOOL_LEVEL_QUERY_COLLECTIONS = new Set([
   'students',
-  'attendanceHistory',   // ← v9: moved from teacher-private
-  'attendanceSummary',   // ← v9: moved from teacher-private
-  'results',             // ← v9: moved from teacher-private
-  'fees',                // ← v9: moved from teacher-private
+  'attendanceHistory',
+  'attendanceSummary',
+  'results',
+  'fees',
 ]);
 
-// Teacher-private data — only this teacher reads/writes their own copy.
-// Path: schools/{schoolId}/teachers/{teacherId}/{collection}
-// Currently empty — add future private collections here
-// e.g. 'lessonplans', 'attendanceDrafts', 'teacherComments'
 const TEACHER_PRIVATE_COLLECTIONS = new Set([
   // intentionally empty after v9 architecture change
 ]);
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  CROSS-TEACHER ACTIVITY BANNER  v9.1
+//  ★ Real teacher name resolved from Firestore teachers subcollection
+//  ★ Cinematic fiction-grade UI with glow rings, shimmer, story copy
+// ═══════════════════════════════════════════════════════════════════════════
+
+// De-dupe tracker — one banner per collection+class per 10 seconds
+const _crossTeacherNotifTracker = {};
+
+// In-memory name cache to avoid repeated Firestore reads
+const _teacherNameCache = {};
+
+const _collectionMeta = {
+  attendanceHistory: {
+    icon: '📅', label: 'Attendance', color: '#3b82f6', accent: '#60a5fa',
+    glow: 'rgba(59,130,246,0.4)',
+    story: (name, ctx) => `<strong>${name}</strong> just recorded ${ctx || 'today\'s attendance'}`,
+    pill: '🟢 Attendance synced',
+  },
+  attendanceSummary: {
+    icon: '📊', label: 'Attendance Summary', color: '#6366f1', accent: '#818cf8',
+    glow: 'rgba(99,102,241,0.4)',
+    story: (name, ctx) => `<strong>${name}</strong> updated the ${ctx || 'attendance summary'}`,
+    pill: '🔵 Summary refreshed',
+  },
+  results: {
+    icon: '📝', label: 'Exam Results', color: '#10b981', accent: '#34d399',
+    glow: 'rgba(16,185,129,0.4)',
+    story: (name, ctx) => `<strong>${name}</strong> posted ${ctx || 'new scores'}`,
+    pill: '✏️ Results entered',
+  },
+  fees: {
+    icon: '💰', label: 'Fee Records', color: '#f59e0b', accent: '#fbbf24',
+    glow: 'rgba(245,158,11,0.4)',
+    story: (name) => `<strong>${name}</strong> updated payment records`,
+    pill: '💳 Payments logged',
+  },
+  students: {
+    icon: '👤', label: 'Student Records', color: '#8b5cf6', accent: '#a78bfa',
+    glow: 'rgba(139,92,246,0.4)',
+    story: (name, ctx) => `<strong>${name}</strong> ${ctx ? `updated ${ctx}` : 'updated a student profile'}`,
+    pill: '🎓 Profile updated',
+  },
+};
+
+// ── Inject cinematic cross-teacher banner styles once ─────────────────────
+(function _injectCrossTeacherStyles() {
+  if (document.getElementById('tm-cross-teacher-styles')) return;
+  const st = document.createElement('style');
+  st.id = 'tm-cross-teacher-styles';
+  st.textContent = `
+    /* ── Banner shell ─────────────────────────────────────────────── */
+    .tm-ct-banner {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 99998;
+      width: 360px;
+      border-radius: 20px;
+      overflow: hidden;
+      font-family: system-ui, -apple-system, sans-serif;
+      animation: tmCTSlideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      border: 1px solid rgba(255,255,255,0.12);
+      isolation: isolate;
+    }
+    .tm-ct-banner:nth-of-type(2) { bottom: calc(24px + 170px); }
+    .tm-ct-banner:nth-of-type(3) { bottom: calc(24px + 340px); }
+
+    /* ── Dark glass body ──────────────────────────────────────────── */
+    .tm-ct-inner {
+      background: rgba(10, 10, 18, 0.88);
+      backdrop-filter: blur(24px) saturate(180%);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* ── Animated glow orb behind header ─────────────────────────── */
+    .tm-ct-glow-orb {
+      position: absolute;
+      top: -40px;
+      left: -30px;
+      width: 180px;
+      height: 180px;
+      border-radius: 50%;
+      filter: blur(48px);
+      opacity: 0.55;
+      animation: tmCTOrbPulse 3s ease-in-out infinite;
+      pointer-events: none;
+    }
+    @keyframes tmCTOrbPulse {
+      0%, 100% { transform: scale(1);   opacity: 0.55; }
+      50%       { transform: scale(1.2); opacity: 0.75; }
+    }
+
+    /* ── Shimmer stripe across top ───────────────────────────────── */
+    .tm-ct-shimmer {
+      position: absolute;
+      top: 0; left: -100%;
+      width: 60%;
+      height: 2px;
+      background: linear-gradient(90deg,
+        transparent 0%, rgba(255,255,255,0.6) 50%, transparent 100%);
+      animation: tmCTShimmer 2.2s ease-in-out infinite;
+      pointer-events: none;
+    }
+    @keyframes tmCTShimmer {
+      0%   { left: -60%; }
+      100% { left: 140%; }
+    }
+
+    /* ── Coloured accent bar on left edge ────────────────────────── */
+    .tm-ct-accent-bar {
+      position: absolute;
+      top: 0; left: 0;
+      width: 3px;
+      height: 100%;
+      border-radius: 0 2px 2px 0;
+    }
+
+    /* ── Header row ──────────────────────────────────────────────── */
+    .tm-ct-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 14px 10px 18px;
+      position: relative;
+      z-index: 1;
+    }
+    .tm-ct-header-icon {
+      font-size: 24px;
+      line-height: 1;
+      flex-shrink: 0;
+      filter: drop-shadow(0 0 6px rgba(255,255,255,0.3));
+    }
+    .tm-ct-header-text {
+      flex: 1;
+      min-width: 0;
+    }
+    .tm-ct-header-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: 0.01em;
+      line-height: 1.3;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .tm-ct-header-sub {
+      font-size: 11px;
+      font-weight: 400;
+      color: rgba(255,255,255,0.5);
+      margin-top: 1px;
+    }
+    .tm-ct-header-sub strong {
+      color: rgba(255,255,255,0.85);
+      font-weight: 600;
+    }
+    .tm-ct-close {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 50%;
+      width: 28px;
+      height: 28px;
+      cursor: pointer;
+      color: rgba(255,255,255,0.6);
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: background 0.15s, color 0.15s;
+      line-height: 1;
+    }
+    .tm-ct-close:hover {
+      background: rgba(255,255,255,0.18);
+      color: #fff;
+    }
+
+    /* ── Divider ─────────────────────────────────────────────────── */
+    .tm-ct-divider {
+      height: 1px;
+      background: linear-gradient(90deg,
+        transparent, rgba(255,255,255,0.08) 20%, rgba(255,255,255,0.08) 80%, transparent);
+      margin: 0 14px;
+    }
+
+    /* ── Body ────────────────────────────────────────────────────── */
+    .tm-ct-body {
+      padding: 12px 14px 14px 18px;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ── Avatar + story row ──────────────────────────────────────── */
+    .tm-ct-story-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+    .tm-ct-avatar-wrap {
+      flex-shrink: 0;
+      position: relative;
+    }
+    .tm-ct-avatar {
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      font-weight: 800;
+      color: white;
+      letter-spacing: -0.5px;
+      position: relative;
+      z-index: 1;
+    }
+    /* Spinning glow ring around avatar */
+    .tm-ct-avatar-ring {
+      position: absolute;
+      inset: -3px;
+      border-radius: 50%;
+      border: 2px solid transparent;
+      animation: tmCTRingSpin 3s linear infinite;
+    }
+    @keyframes tmCTRingSpin {
+      0%   { transform: rotate(0deg);   }
+      100% { transform: rotate(360deg); }
+    }
+    .tm-ct-story-text {
+      flex: 1;
+      font-size: 13px;
+      color: rgba(255,255,255,0.75);
+      line-height: 1.5;
+      padding-top: 2px;
+    }
+    .tm-ct-story-text strong {
+      color: #fff;
+      font-weight: 700;
+    }
+
+    /* ── Bottom meta row ─────────────────────────────────────────── */
+    .tm-ct-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 10px;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .tm-ct-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      color: rgba(255,255,255,0.9);
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.07);
+    }
+    .tm-ct-live-row {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 10px;
+      color: rgba(255,255,255,0.4);
+    }
+    .tm-ct-live-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #4ade80;
+      animation: tmCTPulse 1.5s ease-in-out infinite;
+      flex-shrink: 0;
+    }
+    @keyframes tmCTPulse {
+      0%, 100% { opacity: 1;   transform: scale(1);   }
+      50%       { opacity: 0.4; transform: scale(0.75); }
+    }
+
+    /* ── Slide animations ────────────────────────────────────────── */
+    @keyframes tmCTSlideUp {
+      from { transform: translateY(120%) scale(0.95); opacity: 0; }
+      to   { transform: translateY(0)    scale(1);    opacity: 1; }
+    }
+    @keyframes tmCTSlideDown {
+      from { transform: translateY(0)    scale(1);    opacity: 1; }
+      to   { transform: translateY(120%) scale(0.95); opacity: 0; }
+    }
+  `;
+  document.head.appendChild(st);
+})();
+
+// ── Safe HTML escape ──────────────────────────────────────────────────────
+function _escCT(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Resolve teacher REAL display name ────────────────────────────────────
+//  Priority: Firestore teachers subcollection → docData fields → allTeachers
+//  array → short-ID fallback. Results are cached in-memory.
+async function _resolveTeacherName(teacherId, docData, schoolId) {
+  if (!teacherId) return 'A colleague';
+
+  // 1. In-memory cache hit
+  if (_teacherNameCache[teacherId]) return _teacherNameCache[teacherId];
+
+  // 2. Check fields already on the doc
+  const inDoc = docData?.teacherName || docData?.ownerName || docData?.displayName;
+  if (inDoc && !inDoc.includes('uid') && inDoc.length > 2) {
+    _teacherNameCache[teacherId] = inDoc;
+    return inDoc;
+  }
+
+  // 3. Fetch from Firestore teachers subcollection (real source of truth)
+  if (schoolId) {
+    try {
+      const snap = await _withTimeout(
+        getDoc(doc(fdb, 'schools', schoolId, 'teachers', teacherId)),
+        5000, `teacherName/${teacherId}`
+      );
+      if (snap.exists()) {
+        const d    = snap.data();
+        const name = d.name || d.displayName || d.fullName || d.firstName;
+        if (name) {
+          _teacherNameCache[teacherId] = name;
+          return name;
+        }
+      }
+    } catch (e) {
+      _warn('Teacher name lookup failed (non-fatal):', e.message);
+    }
+  }
+
+  // 4. allTeachers global array (if loaded in app context)
+  if (typeof allTeachers !== 'undefined' && Array.isArray(allTeachers)) {
+    const t = allTeachers.find(t => t.id === teacherId || t.uid === teacherId);
+    if (t?.name) {
+      _teacherNameCache[teacherId] = t.name;
+      return t.name;
+    }
+  }
+
+  // 5. Short-ID fallback
+  const fallback = 'Teacher #' + String(teacherId).slice(-4).toUpperCase();
+  _teacherNameCache[teacherId] = fallback;
+  return fallback;
+}
+
+// ── Build context hint for the story sentence ─────────────────────────────
+function _buildContextHint(collName, docData) {
+  if (collName === 'attendanceHistory' || collName === 'attendanceSummary') {
+    const dateStr = docData?.date || '';
+    return dateStr ? `attendance for <strong>${_escCT(dateStr)}</strong>` : null;
+  }
+  if (collName === 'results') {
+    const subject = docData?.subject || '';
+    const test    = docData?.testName || '';
+    return subject
+      ? `<strong>${_escCT(subject)}</strong>${test ? ' — ' + _escCT(test) : ''}`
+      : null;
+  }
+  if (collName === 'students') {
+    const studentName = docData?.name || '';
+    return studentName ? `student <strong>${_escCT(studentName)}</strong>` : null;
+  }
+  return null;
+}
+
+// ── Render the cinematic banner ───────────────────────────────────────────
+function _showCrossTeacherBanner({ collName, classId, className, writerName, docData, timestamp }) {
+  const meta = _collectionMeta[collName] || {
+    icon: '🔄', label: collName, color: '#6366f1', accent: '#818cf8',
+    glow: 'rgba(99,102,241,0.4)',
+    story: (name) => `<strong>${name}</strong> synced data`,
+    pill: '🔄 Data synced',
+  };
+
+  // Avatar initials
+  const initials = writerName
+    .replace(/Teacher #\w+/, '?')
+    .split(' ').filter(Boolean).slice(0, 2)
+    .map(w => w[0]?.toUpperCase() || '').join('') || '?';
+
+  const timeStr  = new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const ctx      = _buildContextHint(collName, docData);
+  const storyHtml = meta.story(_escCT(writerName), ctx);
+
+  const bannerId = `tm-ct-banner-${collName}-${classId}`;
+  document.getElementById(bannerId)?.remove();
+
+  const banner = document.createElement('div');
+  banner.className = 'tm-ct-banner';
+  banner.id        = bannerId;
+
+  // Conic gradient ring for avatar
+  const ringGradient = `conic-gradient(${meta.accent}, ${meta.color}, transparent, ${meta.accent})`;
+  // Avatar background
+  const avatarBg = `linear-gradient(135deg, ${meta.color}cc, ${meta.accent}88)`;
+
+  banner.innerHTML = `
+    <div class="tm-ct-inner">
+      <!-- Glow orb -->
+      <div class="tm-ct-glow-orb" style="background:${meta.glow};"></div>
+      <!-- Shimmer -->
+      <div class="tm-ct-shimmer"></div>
+      <!-- Accent bar -->
+      <div class="tm-ct-accent-bar"
+           style="background:linear-gradient(180deg,${meta.accent},${meta.color});"></div>
+
+      <!-- Header -->
+      <div class="tm-ct-header">
+        <div class="tm-ct-header-icon">${meta.icon}</div>
+        <div class="tm-ct-header-text">
+          <div class="tm-ct-header-title">${_escCT(meta.label)} Updated</div>
+          <div class="tm-ct-header-sub">
+            Class: <strong>${_escCT(className)}</strong>
+          </div>
+        </div>
+        <button class="tm-ct-close"
+                onclick="_dismissCrossTeacherBanner('${_escCT(bannerId)}')"
+                title="Dismiss">✕</button>
+      </div>
+
+      <div class="tm-ct-divider"></div>
+
+      <!-- Body -->
+      <div class="tm-ct-body">
+        <div class="tm-ct-story-row">
+          <!-- Avatar with spinning ring -->
+          <div class="tm-ct-avatar-wrap">
+            <div class="tm-ct-avatar-ring"
+                 style="background:${ringGradient};"></div>
+            <div class="tm-ct-avatar"
+                 style="background:${avatarBg};
+                        box-shadow:0 0 16px ${meta.glow};">
+              ${_escCT(initials)}
+            </div>
+          </div>
+          <!-- Story text -->
+          <div class="tm-ct-story-text">${storyHtml}</div>
+        </div>
+
+        <!-- Meta: pill + live indicator -->
+        <div class="tm-ct-meta">
+          <div class="tm-ct-pill">${meta.pill}</div>
+          <div class="tm-ct-live-row">
+            <div class="tm-ct-live-dot"></div>
+            <span>Live · ${_escCT(timeStr)}</span>
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+  // Drop-shadow uses accent colour for a glow effect
+  banner.style.boxShadow = `0 8px 40px ${meta.glow}, 0 2px 8px rgba(0,0,0,0.4)`;
+
+  document.body.appendChild(banner);
+  // No auto-dismiss — teacher stays aware until they close it
+}
+
+window._dismissCrossTeacherBanner = function (bannerId) {
+  const el = document.getElementById(bannerId);
+  if (!el) return;
+  el.style.animation = 'tmCTSlideDown 0.35s cubic-bezier(0.4, 0, 1, 1) forwards';
+  setTimeout(() => el.remove(), 360);
+};
+
+// ── Main entry point — called per document change inside live listener ─────
+//  ★ v9.1: schoolId is now passed in so we can fetch the real teacher name.
+//    Called INSIDE Promise.allSettled loop so 'd' is always in scope.
+async function _notifyCrossTeacherActivity(collName, docData, schoolId, assignedClasses) {
+  try {
+    const currentUid = auth?.currentUser?.uid;
+    if (!currentUid) return;
+
+    // Only fire for OTHER teachers — never own writes
+    const writerId = docData?.teacherId || docData?.owner || docData?.syncedBy;
+    if (!writerId || writerId === currentUid) return;
+
+    const classId = docData?.classId;
+    if (!classId) return;
+
+    // Only fire for classes this teacher is also assigned to
+    if (!assignedClasses.includes(classId)) return;
+
+    // De-dupe: one banner per collection+class per 10 seconds
+    const dedupeKey = `${collName}:${classId}`;
+    const now       = Date.now();
+    if (_crossTeacherNotifTracker[dedupeKey] &&
+        now - _crossTeacherNotifTracker[dedupeKey] < 10000) return;
+    _crossTeacherNotifTracker[dedupeKey] = now;
+
+    // ★ Resolve REAL name from Firestore (with cache)
+    const writerName = await _resolveTeacherName(writerId, docData, schoolId);
+
+    // Resolve class name from IndexedDB
+    let className = null;
+    try {
+      const classDoc = await getIndexedDB('classes', classId).catch(() => null);
+      className = classDoc?.name || classDoc?.className || null;
+    } catch (_) {}
+
+    _showCrossTeacherBanner({
+      collName,
+      classId,
+      className: className || classId,
+      writerName,
+      docData,
+      timestamp: now,
+    });
+
+  } catch (e) {
+    // Non-fatal — never break the main listener
+    _warn('_notifyCrossTeacherActivity error (non-fatal):', e.message);
+  }
+}
 
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -4644,7 +5132,6 @@ const MAX_RESTORE_RETRIES  = 5;
 let _classesReadyResolve   = null;
 window.__classesReady      = new Promise(res => { _classesReadyResolve = res; });
 
-// 'classes' MUST be first so dropdowns populate before students load.
 const RESTORE_COLLECTIONS = [
   'classes',
   'students',
@@ -4686,8 +5173,6 @@ window.safeRestore_VB = async function safeRestore_VB(schoolId, _unused, _teache
     restoreCollectionIndex = 0;
     isRestoring            = false;
 
-    // Cooldown prevents live listeners from immediately re-triggering
-    // another restore within 6 seconds of completion.
     _postRestoreCooldown = true;
     setTimeout(() => { _postRestoreCooldown = false; }, 6000);
 
@@ -4703,13 +5188,10 @@ window.safeRestore_VB = async function safeRestore_VB(schoolId, _unused, _teache
       _classesReadyResolve();
     }
 
-    // Notify Class Management dashboard to refresh
     if (typeof window.refreshCM2AfterAssignmentChange === 'function') {
       await window.refreshCM2AfterAssignmentChange().catch(() => {});
     }
 
-    // Start Class Activity Listener if available
-    // (moved here from the dangling fragment in v8)
     try {
       if (window.ClassActivityListener) {
         window.ClassActivityListener.stop();
@@ -4719,7 +5201,7 @@ window.safeRestore_VB = async function safeRestore_VB(schoolId, _unused, _teache
           const tSnap = await getDoc(
             doc(fdb, 'schools', schoolId, 'teachers', teacherId)
           ).catch(() => null);
-          const tData       = tSnap?.exists() ? tSnap.data() : {};
+          const tData        = tSnap?.exists() ? tSnap.data() : {};
           const freshClasses = [
             ...new Set([
               ...(tData.assignedClasses || []),
@@ -4822,7 +5304,7 @@ async function _runRestore(schoolId, teacherIdOverride) {
     _warn('Could not fetch teacher doc for class list:', e.message);
   }
 
-  // ── No classes assigned — wipe and watch ─────────────────────────────────
+  // ── No classes assigned ───────────────────────────────────────────────────
   if (assignedClasses.length === 0) {
     _log('No assigned classes — wiping stale local data and clearing UI.');
 
@@ -4920,7 +5402,6 @@ async function _runRestore(schoolId, teacherIdOverride) {
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  TEACHER DOC LISTENER ONLY
-//  Active when teacher has NO assigned classes.
 // ═══════════════════════════════════════════════════════════════════════════
 function _setupTeacherDocListenerOnly(schoolId, teacherId) {
   _log('No classes assigned — watching teacher doc for assignment changes…');
@@ -5082,7 +5563,7 @@ async function _resolveAndHealAssignedClasses(schoolId, teacherId) {
 
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  RESTORE WITH RETRY (jitter backoff)
+//  RESTORE WITH RETRY
 // ═══════════════════════════════════════════════════════════════════════════
 async function _restoreCollectionWithRetry(coll, schoolId, teacherId, assignedClasses) {
   let lastErr;
@@ -5106,35 +5587,14 @@ async function _restoreCollectionWithRetry(coll, schoolId, teacherId, assignedCl
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  RESTORE A SINGLE COLLECTION
-//
-//  ROUTING (mirrors sync engine writes + firestore.rules):
-//
-//  'classes'    → getDoc() per assigned classId in parallel.
-//                 Collection query denied for teachers — rule checks
-//                 isAssignedToClass(classId) per-doc only.
-//
-//  'feesConfig' → DUAL-PATH: school-level first, teacher-level fallback.
-//                 Whichever path has data wins (school-level authoritative).
-//
-//  SCHOOL_LEVEL_QUERY_COLLECTIONS (students, attendanceHistory,
-//  attendanceSummary, results, fees) → schools/{schoolId}/{coll}
-//  filtered by classId 'in' assignedClasses.
-//  ALL assigned teachers share these documents — this is the v9
-//  architecture change that enables shared class data visibility.
-//
-//  TEACHER_PRIVATE_COLLECTIONS → currently empty. Future private
-//  collections go here (lessonplans, attendanceDrafts, etc).
 // ═══════════════════════════════════════════════════════════════════════════
 async function _restoreCollection(coll, schoolId, teacherId, assignedClasses) {
 
   const hasAssignments = assignedClasses.length > 0;
 
-  // ── 'classes' — parallel getDoc() per assigned classId ───────────────────
+  // ── classes ───────────────────────────────────────────────────────────────
   if (coll === 'classes') {
-    if (!hasAssignments) {
-      _log('"classes" — no assigned classes, skipping.');
-      return;
-    }
+    if (!hasAssignments) { _log('"classes" — no assigned classes, skipping.'); return; }
 
     const results = await Promise.allSettled(
       assignedClasses.map(classId =>
@@ -5146,7 +5606,6 @@ async function _restoreCollection(coll, schoolId, teacherId, assignedClasses) {
     );
 
     const serverIds = [];
-
     await Promise.allSettled(
       results.map(async (result, idx) => {
         if (result.status === 'rejected') {
@@ -5154,10 +5613,7 @@ async function _restoreCollection(coll, schoolId, teacherId, assignedClasses) {
           return;
         }
         const snap = result.value;
-        if (!snap.exists()) {
-          _warn(`Class doc not found: classes/${assignedClasses[idx]}`);
-          return;
-        }
+        if (!snap.exists()) { _warn(`Class doc not found: classes/${assignedClasses[idx]}`); return; }
         const docId = snap.id;
         serverIds.push(docId);
         await setIndexedDB('classes', docId, {
@@ -5171,12 +5627,9 @@ async function _restoreCollection(coll, schoolId, teacherId, assignedClasses) {
     return;
   }
 
-  // ── 'feesConfig' — dual-path per assigned classId ────────────────────────
+  // ── feesConfig dual-path ──────────────────────────────────────────────────
   if (coll === 'feesConfig') {
-    if (!hasAssignments) {
-      _log('"feesConfig" — no assigned classes, skipping.');
-      return;
-    }
+    if (!hasAssignments) { _log('"feesConfig" — no assigned classes, skipping.'); return; }
 
     const results = await Promise.allSettled(
       assignedClasses.map(async classId => {
@@ -5191,22 +5644,14 @@ async function _restoreCollection(coll, schoolId, teacherId, assignedClasses) {
         const schoolResult  = schoolSnap.status  === 'fulfilled' ? schoolSnap.value  : null;
         const teacherResult = teacherSnap.status === 'fulfilled' ? teacherSnap.value : null;
 
-        if (schoolResult?.exists()) {
-          _log(`feesConfig/${classId} — found at school-level path.`);
-          return { classId, data: schoolResult.data(), docId: schoolResult.id };
-        }
-        if (teacherResult?.exists()) {
-          _log(`feesConfig/${classId} — found at teacher-level path (fallback).`);
-          return { classId, data: teacherResult.data(), docId: teacherResult.id };
-        }
-
-        _log(`feesConfig/${classId} — not found at either path, skipping.`);
+        if (schoolResult?.exists())  { _log(`feesConfig/${classId} — school-level.`);  return { classId, data: schoolResult.data(),  docId: schoolResult.id  }; }
+        if (teacherResult?.exists()) { _log(`feesConfig/${classId} — teacher-level.`); return { classId, data: teacherResult.data(), docId: teacherResult.id }; }
+        _log(`feesConfig/${classId} — not found.`);
         return null;
       })
     );
 
     const serverIds = [];
-
     await Promise.allSettled(
       results.map(async result => {
         if (result.status === 'rejected' || !result.value) return;
@@ -5223,7 +5668,7 @@ async function _restoreCollection(coll, schoolId, teacherId, assignedClasses) {
     return;
   }
 
-  // ── School-level shared collections (v9: includes attendance/results/fees)
+  // ── School-level shared collections ──────────────────────────────────────
   let firestoreQuery;
 
   if (SCHOOL_LEVEL_QUERY_COLLECTIONS.has(coll) && hasAssignments) {
@@ -5236,8 +5681,6 @@ async function _restoreCollection(coll, schoolId, teacherId, assignedClasses) {
       await _restoreCollectionInChunks(coll, schoolId, assignedClasses);
       return;
     }
-
-  // ── Teacher-private collections (currently empty in v9) ──────────────────
   } else if (TEACHER_PRIVATE_COLLECTIONS.has(coll)) {
     const base = collection(fdb, 'schools', schoolId, 'teachers', teacherId, coll);
     if (hasAssignments && assignedClasses.length <= 30) {
@@ -5248,17 +5691,13 @@ async function _restoreCollection(coll, schoolId, teacherId, assignedClasses) {
     } else {
       firestoreQuery = base;
     }
-
   } else {
     firestoreQuery = collection(fdb, 'schools', schoolId, coll);
   }
 
   let snapshot;
   try {
-    snapshot = await _withTimeout(
-      getDocs(firestoreQuery),
-      12000, `getDocs(${coll})`
-    );
+    snapshot = await _withTimeout(getDocs(firestoreQuery), 12000, `getDocs(${coll})`);
   } catch (e) {
     throw new Error(`getDocs failed for "${coll}": ${e.message}`);
   }
@@ -5269,7 +5708,6 @@ async function _restoreCollection(coll, schoolId, teacherId, assignedClasses) {
   }
 
   const serverIds = [];
-
   await Promise.allSettled(
     snapshot.docs.map(async d => {
       const docId      = d.id;
@@ -5283,9 +5721,7 @@ async function _restoreCollection(coll, schoolId, teacherId, assignedClasses) {
 
       const dataToSave = { ...serverData, id: docId, _restoredAt: Date.now() };
       const photoField = PHOTO_FIELDS[coll];
-      if (photoField && localData?.[photoField]) {
-        dataToSave[photoField] = localData[photoField];
-      }
+      if (photoField && localData?.[photoField]) dataToSave[photoField] = localData[photoField];
 
       await setIndexedDB(coll, docId, dataToSave)
         .catch(e => _err(`setIndexedDB failed for ${coll}/${docId}:`, e.message));
@@ -5298,10 +5734,10 @@ async function _restoreCollection(coll, schoolId, teacherId, assignedClasses) {
 
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  CHUNK HANDLER — school-level collections, > 30 assigned classes
+//  CHUNK HANDLERS
 // ═══════════════════════════════════════════════════════════════════════════
 async function _restoreCollectionInChunks(coll, schoolId, assignedClasses) {
-  const CHUNK        = 30;
+  const CHUNK = 30;
   const allServerIds = [];
 
   for (let i = 0; i < assignedClasses.length; i += CHUNK) {
@@ -5309,10 +5745,7 @@ async function _restoreCollectionInChunks(coll, schoolId, assignedClasses) {
     let snapshot;
     try {
       snapshot = await _withTimeout(
-        getDocs(query(
-          collection(fdb, 'schools', schoolId, coll),
-          where('classId', 'in', chunk)
-        )),
+        getDocs(query(collection(fdb, 'schools', schoolId, coll), where('classId', 'in', chunk))),
         12000, `getDocs chunk(${coll})`
       );
     } catch (e) {
@@ -5338,15 +5771,10 @@ async function _restoreCollectionInChunks(coll, schoolId, assignedClasses) {
   _log(`✔ "${coll}" (chunked) — ${allServerIds.length} doc(s) restored.`);
 }
 
-
-// ═══════════════════════════════════════════════════════════════════════════
-//  CHUNK HANDLER — teacher-private collections, > 30 assigned classes
-//  Kept for future private collections added to TEACHER_PRIVATE_COLLECTIONS
-// ═══════════════════════════════════════════════════════════════════════════
 async function _restoreTeacherCollectionInChunks(coll, schoolId, teacherId, assignedClasses) {
-  const CHUNK        = 30;
+  const CHUNK = 30;
   const allServerIds = [];
-  const base         = collection(fdb, 'schools', schoolId, 'teachers', teacherId, coll);
+  const base  = collection(fdb, 'schools', schoolId, 'teachers', teacherId, coll);
 
   for (let i = 0; i < assignedClasses.length; i += CHUNK) {
     const chunk = assignedClasses.slice(i, i + CHUNK);
@@ -5377,13 +5805,9 @@ async function _restoreTeacherCollectionInChunks(coll, schoolId, teacherId, assi
 
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  REAL-TIME LISTENERS (loop-safe, revocation-aware)
-//
-//  v9 CHANGE: Data listeners for attendanceHistory, attendanceSummary,
-//  results, fees now listen at the SCHOOL-LEVEL path filtered by classId.
-//  All teachers assigned to the same class share these live updates.
-//  _makeTeacherDataListener removed — no teacher-private data collections
-//  remain in v9. Only students + shared data collections are listened to.
+//  REAL-TIME LISTENERS
+//  ★ _notifyCrossTeacherActivity is now async and called with await inside
+//    Promise.allSettled — 'd' is always in scope, schoolId always passed.
 // ═══════════════════════════════════════════════════════════════════════════
 function _setupLiveListeners(schoolId, teacherId, assignedClasses) {
   _log('Setting up real-time listeners…');
@@ -5417,7 +5841,6 @@ function _setupLiveListeners(schoolId, teacherId, assignedClasses) {
       if (!changed) return;
 
       _log('Assignment changed — old:', oldIds, '→ new:', newIds);
-
       _listenerDebounceTimer = setTimeout(() => { _listenerDebounceTimer = null; }, 5000);
       _stopListeners();
 
@@ -5500,9 +5923,9 @@ function _setupLiveListeners(schoolId, teacherId, assignedClasses) {
   }
 
   // ── Listeners 3+: Shared school-level data collections ───────────────────
-  // v9: ALL of these are now at the school-level path, shared across all
-  // teachers assigned to the same class. Any teacher writing attendance,
-  // results or fees immediately updates all other assigned teachers' views.
+  //  ★ v9.1: _notifyCrossTeacherActivity is now async; called with await
+  //    inside Promise.allSettled so 'd' is always in scope and
+  //    schoolId is always passed through for real name resolution.
   if (assignedClasses.length > 0 && assignedClasses.length <= 30) {
 
     const _makeSharedDataListener = (collName) => onSnapshot(
@@ -5513,28 +5936,33 @@ function _setupLiveListeners(schoolId, teacherId, assignedClasses) {
       async (snap) => {
         await Promise.allSettled(
           snap.docChanges().map(async change => {
-            const d = change.doc;
+            const d = change.doc;                          // 'd' is in scope
+
             if (change.type === 'removed') {
               await deleteIndexedDB(collName, d.id).catch(() => {});
             } else {
               const localData = collName === 'students'
                 ? await getIndexedDB(collName, d.id).catch(() => ({}))
                 : null;
+
               await setIndexedDB(collName, d.id, {
                 ...d.data(),
                 id: d.id,
                 _restoredAt: Date.now(),
                 ...(localData?.photo ? { photo: localData.photo } : {}),
               }).catch(() => {});
+
+              // ★ await here — async name resolution happens before banner shows
+              await _notifyCrossTeacherActivity(collName, d.data(), schoolId, assignedClasses);
             }
           })
         );
+
         if (snap.docChanges().length > 0 && typeof refreshUI === 'function') refreshUI();
       },
       (err) => _warn(`${collName} (shared) listener error:`, err.message)
     );
 
-    // All five collections now use shared school-level path
     _activeListeners.push(_makeSharedDataListener('students'));
     _activeListeners.push(_makeSharedDataListener('attendanceHistory'));
     _activeListeners.push(_makeSharedDataListener('attendanceSummary'));
@@ -5594,7 +6022,7 @@ window.forceRestore_VB = async function (schoolId) {
 };
 
 
-console.log('[RestoreEngine] ✅ Production restore engine v9 loaded.');
+console.log('[RestoreEngine] ✅ Production restore engine v9.1 + cinematic cross-teacher banner loaded.');
 
 
 
