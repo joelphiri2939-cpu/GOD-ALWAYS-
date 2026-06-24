@@ -1729,6 +1729,11 @@ th, td { padding: 10px; text-align: left; }
           <button id="saveResultsBtn" class="btn primary">Save Results</button>
           <button id="viewResultsHistoryBtn" class="btn">View History</button>
           <button id="exportResultsPdfBtn" class="btn">Export PDF</button>
+
+  
+        <button id="sendClassSMSBtn">📲 Send Results via SMS</button>
+
+          
           <button id="generateAnalyticsBtn" class="btn">Analytics</button>
         </div>
 
@@ -4028,12 +4033,15 @@ async function initIndexedDB() {
     request.onupgradeneeded = (event) => {
       db = event.target.result;
 
+
+
       const defaultStores = [
-        'classes', 'students', 'attendance', 'results', 'fees',
-        'feesConfig', 'messages', 'teachers', 'userProfile', 'syncQueue',
-        'attendanceDrafts', 'lessonplans',
-        'teacherComments', 'lp_v3_plans'
-      ];
+  'classes', 'students', 'attendance', 'results', 'fees',
+  'feesConfig', 'messages', 'teachers', 'userProfile', 'syncQueue',
+  'attendanceDrafts', 'lessonplans',
+  'teacherComments', 'lp_v3_plans',
+  'smsSettings', 'smsLog', 'smsCredits','guardian phone'
+];
 
       defaultStores.forEach(storeName => {
         if (!db.objectStoreNames.contains(storeName)) {
@@ -17388,6 +17396,811 @@ const testName = prompt('please leave the entry field down here blank to continu
     });
     console.log('Run testGrading() in console to validate the grading scale.');
   };
+
+// ============================================================
+// TeachMate — SMS Results Gateway (ADDON — do not modify above)
+// Africa's Talking via Render backend — no API key in the browser
+// Paste this block BEFORE the closing })(); of Results Module
+// ============================================================
+
+// ── SMS CONFIG STORE ─────────────────────────────────────────
+const SMS_SETTINGS_KEY  = 'smsSettings';
+const SMS_LOG_KEY       = 'smsLog';
+const SMS_CREDITS_KEY   = 'smsCredits';
+
+// Default config shape.
+// Backend URL + Gateway Token are pre-filled here so teachers never
+// have to open Settings or type anything to use the SMS feature.
+// The real Africa's Talking API key is NOT here — it lives only in
+// Render's environment variables, server-side, never in this file.
+const DEFAULT_SMS_SETTINGS = {
+  backendUrl:    'https://sms-teachmate.onrender.com',
+  gatewayToken:  '00879990a7897ab16cf7fce4933e6d9a',
+  senderId:      'TEACHMATE', // for display purposes only; actual sender is set server-side
+};
+
+// ── SMS FORMATTER ─────────────────────────────────────────────
+/**
+ * Builds the compact TeachMate SMS body.
+ * Fits school name + results in 2-3 SMS segments (~320 chars).
+ *
+ * Output example:
+ * TEACHMATE
+ * ST FRANCIS SECONDARY
+ * MIDTERM EXAMINATION
+ *
+ * JOHN PHIRI
+ * MTH:78 ENG:82 SCI:75 SST:80
+ * AVG:79% POS:5/42
+ */
+function formatSMSMessage({ schoolName, assessmentName, studentName, scores, avg, position, classSize }) {
+  // Abbreviate subject names to 3-4 chars (cost-saving)
+  const scoreStr = Object.entries(scores || {})
+    .map(([subj, score]) => {
+      const abbr = String(subj)
+        .toUpperCase()
+        .replace(/\s+/g, '')
+        .substring(0, 4);
+      return `${abbr}:${score}`;
+    })
+    .join(' ');
+
+  const school     = (schoolName || 'YOUR SCHOOL').toUpperCase().substring(0, 40);
+  const assessment = (assessmentName || 'ASSESSMENT').toUpperCase().substring(0, 30);
+  const name       = (studentName || 'STUDENT').toUpperCase().substring(0, 30);
+  const posText    = (position && classSize) ? `POS:${position}/${classSize}` : '';
+  const avgText    = `AVG:${avg}%`;
+
+  return [
+    'TEACHMATE',
+    school,
+    assessment,
+    '',
+    name,
+    scoreStr,
+    `${avgText}${posText ? ' ' + posText : ''}`,
+  ].filter(line => line !== null).join('\n');
+}
+
+// ── LOG WRITER ────────────────────────────────────────────────
+async function logSMSMessage(entry) {
+  try {
+    const logs = (await getIndexedDB(SMS_LOG_KEY)) || [];
+    logs.unshift({
+      ...entry,
+      sentAt: new Date().toISOString(),
+    });
+    // Keep last 500 entries
+    if (logs.length > 500) logs.length = 500;
+    await setIndexedDB(SMS_LOG_KEY, SMS_LOG_KEY, logs);
+  } catch (err) {
+    console.warn('SMS log write failed', err);
+  }
+}
+
+// ── CREDITS MANAGER ──────────────────────────────────────────
+// NOTE: This is now a LOCAL counter for your own bookkeeping/UX only.
+// It does NOT reflect your real Africa's Talking balance — check that
+// in the AT dashboard. This local count just lets you show teachers
+// a rough "X messages sent this term" style number if you want one.
+async function getSMSCredits() {
+  try {
+    const c = await getIndexedDB(SMS_CREDITS_KEY, SMS_CREDITS_KEY);
+    return (c && typeof c.balance === 'number') ? c.balance : 0;
+  } catch { return 0; }
+}
+
+async function deductSMSCredits(count) {
+  try {
+    const current = await getSMSCredits();
+    const newBal  = Math.max(0, current - count);
+    await setIndexedDB(SMS_CREDITS_KEY, SMS_CREDITS_KEY, { balance: newBal, updatedAt: new Date().toISOString() });
+    return newBal;
+  } catch (err) {
+    console.warn('Credit deduction failed', err);
+  }
+}
+
+async function addSMSCredits(count) {
+  try {
+    const current = await getSMSCredits();
+    await setIndexedDB(SMS_CREDITS_KEY, SMS_CREDITS_KEY, { balance: current + count, updatedAt: new Date().toISOString() });
+  } catch (err) {
+    console.warn('Credit top-up failed', err);
+  }
+}
+
+// ── RENDER BACKEND CALLER ─────────────────────────────────────
+/**
+ * Sends one SMS by calling YOUR Render backend, which holds the
+ * real Africa's Talking API key server-side. The browser never
+ * sees that key — only backendUrl + gatewayToken, which are just
+ * routing/auth details, not the AT secret itself.
+ *
+ * @returns {{ success: boolean, messageId?: string, error?: string }}
+ */
+async function callBackendSMS(phone, message, settings) {
+  const { backendUrl, gatewayToken } = settings;
+
+  if (!backendUrl || backendUrl.trim() === '' || backendUrl.includes('YOUR-RENDER-APP')) {
+    console.log(`[SMS SIMULATION — no backend URL set] To: ${phone}\n${message}`);
+    await new Promise(r => setTimeout(r, 200)); // Fake latency
+    return { success: true, messageId: `SIM-${Date.now()}`, simulated: true };
+  }
+
+  try {
+    const res = await fetch(`${backendUrl.replace(/\/+$/, '')}/send-sms`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(gatewayToken ? { 'X-Gateway-Token': gatewayToken } : {}),
+      },
+      body: JSON.stringify({
+        phone: phone.replace(/\s+/g, ''),
+        message,
+      }),
+    });
+
+    let data;
+    try {
+      data = await res.json();
+    } catch {
+      return { success: false, error: `Backend returned non-JSON response (HTTP ${res.status})` };
+    }
+
+    if (!res.ok) {
+      return { success: false, error: data.error || `HTTP ${res.status}` };
+    }
+
+    return {
+      success:   !!data.success,
+      messageId: data.messageId || null,
+      error:     data.error || (data.success ? null : 'Unknown failure'),
+    };
+  } catch (err) {
+    return { success: false, error: `Could not reach backend: ${err.message}` };
+  }
+}
+
+// ── CORE: SEND RESULTS TO ONE STUDENT ────────────────────────
+async function sendStudentResultsSMS(className, studentId, opts = {}) {
+  const {
+    schoolName      = '',
+    assessmentName  = '',
+    category        = '',
+    level           = '',
+    phone           = '',
+    studentName     = '',
+    position        = null,
+    classSize       = null,
+  } = opts;
+
+  if (!phone || phone.trim() === '') {
+    return { success: false, studentId, error: 'No phone number' };
+  }
+
+  // Load scores for this student across filtered results
+  let results = (await getIndexedDB('results')) || [];
+  results = results.filter(r => {
+    const c = r.classId || r.class || r.className;
+    const matchClass = c && String(c).trim().toLowerCase() === String(className).trim().toLowerCase();
+    const matchScore = r.scores && r.scores[studentId] !== undefined;
+    const matchCat   = !category || r.category === category;
+    const matchLevel = !level || r.level === level;
+    return matchClass && matchScore && matchCat && matchLevel;
+  });
+
+  if (results.length === 0) {
+    return { success: false, studentId, error: 'No results found' };
+  }
+
+  // Build subject → score map (use latest score per subject)
+  const subjectScores = {};
+  results.sort((a, b) => (a.date > b.date ? -1 : 1)); // newest first
+  results.forEach(r => {
+    const subj = (r.subject || 'Unknown').trim();
+    if (!(subj in subjectScores)) {
+      subjectScores[subj] = Number(r.scores[studentId]);
+    }
+  });
+
+  const scoreValues = Object.values(subjectScores);
+  const avg = scoreValues.length
+    ? round2(scoreValues.reduce((a, b) => a + b, 0) / scoreValues.length)
+    : 0;
+
+  const message = formatSMSMessage({
+    schoolName,
+    assessmentName: assessmentName || category || 'ASSESSMENT',
+    studentName,
+    scores: subjectScores,
+    avg,
+    position,
+    classSize,
+  });
+
+  // Load SMS settings (falls back to the hardcoded defaults above
+  // if nothing has been saved to IndexedDB yet — so it works out
+  // of the box with zero setup)
+  const settings = (await getIndexedDB(SMS_SETTINGS_KEY, SMS_SETTINGS_KEY)) || DEFAULT_SMS_SETTINGS;
+
+  const result = await callBackendSMS(phone.trim(), message, settings);
+
+  // Log every attempt (success or failure)
+  await logSMSMessage({
+    studentId,
+    studentName,
+    channel:    'SMS',
+    phone:      phone.trim(),
+    assessment: assessmentName || category,
+    className,
+    message,
+    status:     result.success ? (result.simulated ? 'SIMULATED' : 'DELIVERED') : 'FAILED',
+    messageId:  result.messageId || null,
+    error:      result.error || null,
+  });
+
+  if (result.success) {
+    await deductSMSCredits(1);
+  }
+
+  return { ...result, studentId, studentName, phone };
+}
+
+// ── CORE: SEND RESULTS TO ENTIRE CLASS ───────────────────────
+/**
+ * One-click: sends results to every student in the class
+ * who has a phone number stored in their student record.
+ */
+window.sendClassResultsViaSMS = async function () {
+  const classEl    = document.getElementById('results-class');
+  const categoryEl = document.getElementById('results-category-filter') || document.getElementById('test-category');
+  const levelEl    = document.getElementById('results-level-filter')    || document.getElementById('results-level');
+
+  if (!classEl || !classEl.value) {
+    return showToast('Select a class first', 'error');
+  }
+
+  const className  = classEl.value.trim();
+  const category   = categoryEl ? categoryEl.value : '';
+  const level      = levelEl    ? levelEl.value    : '';
+
+  // Load students
+  let students = (await getIndexedDB('students')) || [];
+  students = students.filter(s => classMatches(s, className));
+
+  if (!students.length) {
+    return showToast('No students found in this class', 'error');
+  }
+
+  // Compute rankings for position field
+  const rankMap = await _computeRankings(className, category, level);
+
+  // Prompt for school name & assessment label once
+  const schoolName     = prompt('School name for SMS header:', '') || '';
+  const assessmentName = prompt('Assessment name (e.g. MIDTERM EXAMINATION):', category || '') || category || '';
+
+  if (!assessmentName) {
+    return showToast('Assessment name is required', 'error');
+  }
+
+  // Recognizes phone numbers stored under any of these field names —
+  // TeachMate's student schema uses guardianPhone, but we keep the
+  // others too in case some records use a different field.
+  const studentsWithPhone = students.filter(s => s.phone || s.phoneNumber || s.contact || s.guardianPhone);
+
+  if (!studentsWithPhone.length) {
+    return showToast('No students have phone numbers stored. Update student records first.', 'error');
+  }
+
+  const settings    = (await getIndexedDB(SMS_SETTINGS_KEY, SMS_SETTINGS_KEY)) || DEFAULT_SMS_SETTINGS;
+  const isSimulated = !settings.backendUrl || settings.backendUrl.trim() === '' || settings.backendUrl.includes('YOUR-RENDER-APP');
+
+  const confirmed = confirm(
+    `📤 Send Results via SMS\n\n` +
+    `Class: ${className}\n` +
+    `Assessment: ${assessmentName}\n` +
+    `Recipients: ${studentsWithPhone.length} students with phone numbers\n` +
+    (isSimulated
+      ? `\n⚠️  NO BACKEND URL SET — running in simulation mode.\nMessages will be logged but not actually sent.\n`
+      : `\nThis will send ${studentsWithPhone.length} real SMS messages .\n`) +
+    `\nProceed?`
+  );
+
+  if (!confirmed) return;
+
+  openSMSSendingModal(
+    className, category, level, schoolName, assessmentName,
+    students, studentsWithPhone, rankMap, settings, isSimulated
+  );
+};
+
+// ── COMPUTE RANKINGS ─────────────────────────────────────────
+async function _computeRankings(className, category, level) {
+  try {
+    let results = (await getIndexedDB('results')) || [];
+    results = results.filter(r => {
+      const c = r.classId || r.class || r.className;
+      return (
+        c && String(c).trim().toLowerCase() === String(className).trim().toLowerCase() &&
+        (!category || r.category === category) &&
+        (!level    || r.level    === level)
+      );
+    });
+
+    const totals = {};
+    const counts = {};
+    results.forEach(r => {
+      Object.entries(r.scores || {}).forEach(([sid, score]) => {
+        totals[sid] = (totals[sid] || 0) + Number(score);
+        counts[sid] = (counts[sid] || 0) + 1;
+      });
+    });
+
+    const avgs = Object.entries(totals).map(([sid, total]) => ({
+      sid,
+      avg: counts[sid] ? round2(total / counts[sid]) : 0,
+    })).sort((a, b) => b.avg - a.avg);
+
+    const rankMap = {};
+    avgs.forEach((s, i) => {
+      rankMap[s.sid] = { position: i + 1, classSize: avgs.length };
+    });
+    return rankMap;
+  } catch {
+    return {};
+  }
+}
+
+// ── SENDING PROGRESS MODAL ────────────────────────────────────
+function openSMSSendingModal(
+  className, category, level, schoolName, assessmentName,
+  allStudents, studentsWithPhone, rankMap, settings, isSimulated
+) {
+  // Remove existing
+  const old = document.getElementById('tm-sms-sending-modal');
+  if (old) old.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'tm-sms-sending-modal';
+  modal.style.cssText = `
+    position:fixed;inset:0;z-index:99999;
+    background:rgba(10,15,30,0.85);
+    display:flex;align-items:center;justify-content:center;
+    padding:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    backdrop-filter:blur(6px);
+  `;
+
+  modal.innerHTML = `
+    <div style="
+      background:#0f172a;border-radius:16px;width:100%;max-width:520px;
+      box-shadow:0 30px 80px rgba(0,0,0,0.6);overflow:hidden;
+      border:1px solid #1e293b;
+    ">
+      <!-- Header -->
+      <div style="
+        background:linear-gradient(135deg,#064e3b 0%,#065f46 100%);
+        padding:18px 22px;display:flex;align-items:center;gap:12px;
+      ">
+        <div style="font-size:28px;">📲</div>
+        <div>
+          <div style="color:#ecfdf5;font-size:15px;font-weight:700;">Sending Results via SMS</div>
+          <div style="color:#6ee7b7;font-size:12px;margin-top:2px;">
+            ${isSimulated ? '⚠️ Simulation Mode — No Backend URL Set' : "Africa's Talking via Render"}
+          </div>
+        </div>
+      </div>
+
+      <!-- Stats bar -->
+      <div style="
+        display:grid;grid-template-columns:repeat(3,1fr);
+        gap:1px;background:#1e293b;border-bottom:1px solid #1e293b;
+      ">
+        <div style="background:#0f172a;padding:12px;text-align:center;">
+          <div style="font-size:18px;font-weight:800;color:#34d399;" id="sms-stat-sent">0</div>
+          <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.05em;">Sent</div>
+        </div>
+        <div style="background:#0f172a;padding:12px;text-align:center;">
+          <div style="font-size:18px;font-weight:800;color:#f87171;" id="sms-stat-failed">0</div>
+          <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.05em;">Failed</div>
+        </div>
+        <div style="background:#0f172a;padding:12px;text-align:center;">
+          <div style="font-size:18px;font-weight:800;color:#94a3b8;" id="sms-stat-remain">${studentsWithPhone.length}</div>
+          <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.05em;">Remaining</div>
+        </div>
+      </div>
+
+      <!-- Progress bar -->
+      <div style="padding:16px 22px 0;">
+        <div style="
+          background:#1e293b;border-radius:8px;height:6px;overflow:hidden;
+        ">
+          <div id="sms-progress-bar" style="
+            height:100%;width:0%;background:linear-gradient(90deg,#059669,#34d399);
+            border-radius:8px;transition:width 0.3s ease;
+          "></div>
+        </div>
+        <div style="
+          display:flex;justify-content:space-between;
+          margin-top:6px;font-size:11px;color:#475569;
+        ">
+          <span id="sms-progress-label">Starting...</span>
+          <span id="sms-progress-pct">0%</span>
+        </div>
+      </div>
+
+      <!-- Log feed -->
+      <div id="sms-log-feed" style="
+        margin:14px 22px;height:180px;overflow-y:auto;
+        background:#020617;border-radius:10px;padding:10px 12px;
+        border:1px solid #1e293b;font-size:11px;font-family:monospace;
+        scroll-behavior:smooth;
+      "></div>
+
+      <!-- Action row -->
+      <div style="padding:0 22px 18px;display:flex;justify-content:flex-end;gap:10px;">
+        <button id="sms-view-log-btn" style="
+          padding:9px 16px;border-radius:8px;
+          background:#1e293b;color:#cbd5e1;border:1px solid #334155;
+          font-size:12px;font-weight:600;cursor:pointer;display:none;
+        ">📋 View Full Log</button>
+        <button id="sms-close-btn" style="
+          padding:9px 20px;border-radius:8px;
+          background:#059669;color:#fff;border:none;
+          font-size:12px;font-weight:700;cursor:pointer;display:none;
+        ">Done</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const logFeed       = modal.querySelector('#sms-log-feed');
+  const progressBar   = modal.querySelector('#sms-progress-bar');
+  const progressLabel = modal.querySelector('#sms-progress-label');
+  const progressPct   = modal.querySelector('#sms-progress-pct');
+  const statSent      = modal.querySelector('#sms-stat-sent');
+  const statFailed    = modal.querySelector('#sms-stat-failed');
+  const statRemain    = modal.querySelector('#sms-stat-remain');
+  const closeBtn      = modal.querySelector('#sms-close-btn');
+  const viewLogBtn    = modal.querySelector('#sms-view-log-btn');
+
+  function appendLog(text, color = '#94a3b8') {
+    const line = document.createElement('div');
+    line.style.cssText = `color:${color};margin-bottom:4px;line-height:1.5;`;
+    line.textContent = text;
+    logFeed.appendChild(line);
+    logFeed.scrollTop = logFeed.scrollHeight;
+  }
+
+  closeBtn.addEventListener('click',   () => modal.remove());
+  viewLogBtn.addEventListener('click', () => { modal.remove(); openSMSLogModal(); });
+
+  // ── Fire off the batch ───────────────────────────────────
+  (async () => {
+    let sent   = 0;
+    let failed = 0;
+    const total = studentsWithPhone.length;
+
+    appendLog(`▶ Dispatching to ${total} students...`);
+
+    for (let i = 0; i < studentsWithPhone.length; i++) {
+      const student = studentsWithPhone[i];
+      const sid     = student.id || student.studentId;
+      const name    = student.name || student.studentName || sid;
+      // FIX: this line was missing the guardianPhone fallback — it
+      // was the actual reason "no phone number" kept firing even
+      // after the class-level filter above was already finding
+      // students correctly. Now it matches the same field priority
+      // used everywhere else.
+      const phone   = student.phone || student.phoneNumber || student.contact || student.guardianPhone || '';
+      const rank    = rankMap[sid] || {};
+
+      appendLog(`⏳ [${i+1}/${total}] ${name} → ${phone}`);
+
+      const res = await sendStudentResultsSMS(className, sid, {
+        schoolName,
+        assessmentName,
+        category,
+        level,
+        phone,
+        studentName: name,
+        position:    rank.position  || null,
+        classSize:   rank.classSize || null,
+      });
+
+      if (res.success) {
+        sent++;
+        const tag = res.simulated ? '[SIMULATED]' : '[DELIVERED]';
+        appendLog(`  ✅ ${tag} ${name}`, '#34d399');
+      } else {
+        failed++;
+        appendLog(`  ❌ FAILED — ${name}: ${res.error || 'Unknown'}`, '#f87171');
+      }
+
+      // Update stats
+      const remain = total - (i + 1);
+      statSent.textContent   = sent;
+      statFailed.textContent = failed;
+      statRemain.textContent = remain;
+      const pct = Math.round(((i + 1) / total) * 100);
+      progressBar.style.width   = pct + '%';
+      progressPct.textContent   = pct + '%';
+      progressLabel.textContent = remain > 0 ? `Sending to ${remain} more...` : 'Complete';
+
+      // Small delay between sends (avoid hammering API)
+      if (i < studentsWithPhone.length - 1) {
+        await new Promise(r => setTimeout(r, 300));
+      }
+    }
+
+    // Done
+    const summary = `✅ Done: ${sent} sent, ${failed} failed${isSimulated ? ' (simulation)' : ''}.`;
+    appendLog(summary, sent > 0 ? '#34d399' : '#f87171');
+    showToast(summary, sent > 0 ? 'success' : 'error');
+    closeBtn.style.display   = 'block';
+    viewLogBtn.style.display = 'block';
+    progressLabel.textContent = 'All done';
+  })();
+}
+
+// ── SMS SETTINGS MODAL ────────────────────────────────────────
+// Teachers don't need to touch this for normal use — backendUrl and
+// gatewayToken are pre-filled via DEFAULT_SMS_SETTINGS. This modal
+// stays available in case you ever need to point at a different
+// backend or rotate the gateway token without shipping a code update.
+window.openSMSSettingsModal = async function () {
+  const old = document.getElementById('tm-sms-settings-modal');
+  if (old) old.remove();
+
+  const settings = (await getIndexedDB(SMS_SETTINGS_KEY, SMS_SETTINGS_KEY)) || { ...DEFAULT_SMS_SETTINGS };
+  const credits  = await getSMSCredits();
+
+  const modal = document.createElement('div');
+  modal.id    = 'tm-sms-settings-modal';
+  modal.style.cssText = `
+    position:fixed;inset:0;z-index:99999;
+    background:rgba(10,15,30,0.85);
+    display:flex;align-items:center;justify-content:center;
+    padding:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    backdrop-filter:blur(6px);
+  `;
+
+  modal.innerHTML = `
+    <div style="
+      background:#0f172a;border-radius:16px;width:100%;max-width:480px;
+      box-shadow:0 30px 80px rgba(0,0,0,0.6);overflow:hidden;
+      border:1px solid #1e293b;
+    ">
+      <div style="
+        background:linear-gradient(135deg,#1e1b4b 0%,#312e81 100%);
+        padding:18px 22px;display:flex;justify-content:space-between;align-items:center;
+      ">
+        <div>
+          <div style="color:#e0e7ff;font-size:15px;font-weight:700;">⚙️ SMS Settings</div>
+          <div style="color:#a5b4fc;font-size:12px;margin-top:2px;">Africa's Talking via Render Backend</div>
+        </div>
+        <button id="sms-settings-close-x" style="
+          background:none;border:none;color:#a5b4fc;font-size:22px;cursor:pointer;
+        ">&times;</button>
+      </div>
+
+      <div style="padding:20px 22px;display:flex;flex-direction:column;gap:16px;">
+
+        <!-- Local send counter (not your real AT balance) -->
+        <div style="
+          background:#020617;border-radius:10px;padding:14px 16px;
+          border:1px solid #1e293b;display:flex;justify-content:space-between;align-items:center;
+        ">
+          <div>
+            <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.07em;">Messages Sent (local count)</div>
+            <div style="font-size:22px;font-weight:800;color:#a5f3fc;" id="sms-credit-display">${credits}</div>
+            <div style="font-size:10px;color:#475569;">Check your real AT balance in the Africa's Talking dashboard</div>
+          </div>
+        </div>
+
+        <!-- Backend URL -->
+        <div>
+          <label style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;">
+            Render Backend URL
+          </label>
+          <input type="text" id="sms-backend-url" value="${settings.backendUrl || ''}"
+            placeholder="https://teachmate-sms-gateway.onrender.com"
+            style="
+              width:100%;margin-top:6px;padding:10px 12px;border-radius:8px;
+              background:#020617;border:1px solid #334155;
+              color:#e2e8f0;font-size:12px;outline:none;box-sizing:border-box;
+            ">
+          <div style="font-size:10px;color:#475569;margin-top:4px;">
+            Pre-filled by default. No API key goes here — that lives in Render's environment variables.
+          </div>
+        </div>
+
+        <!-- Gateway Token -->
+        <div>
+          <label style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;">
+            Gateway Token
+          </label>
+          <input type="password" id="sms-gateway-token" value="${settings.gatewayToken || ''}"
+            placeholder="Must match GATEWAY_TOKEN set in Render"
+            style="
+              width:100%;margin-top:6px;padding:10px 12px;border-radius:8px;
+              background:#020617;border:1px solid #334155;
+              color:#e2e8f0;font-size:13px;outline:none;box-sizing:border-box;
+            ">
+          <div style="font-size:10px;color:#475569;margin-top:4px;">
+            Pre-filled by default. A shared secret to stop random requests hitting your backend — not the AT API key itself.
+          </div>
+        </div>
+
+        <!-- Sender ID (display only) -->
+        <div>
+          <label style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;">
+            Sender ID (display only)
+          </label>
+          <input type="text" id="sms-sender-id" value="${settings.senderId || 'TEACHMATE'}"
+            maxlength="11" placeholder="TEACHMATE"
+            style="
+              width:100%;margin-top:6px;padding:10px 12px;border-radius:8px;
+              background:#020617;border:1px solid #334155;
+              color:#e2e8f0;font-size:13px;outline:none;box-sizing:border-box;
+            ">
+          <div style="font-size:10px;color:#475569;margin-top:4px;">
+            The real sender ID is configured server-side (AT_SENDER_ID in Render). This field is just for your reference here.
+          </div>
+        </div>
+
+      </div>
+
+      <div style="
+        padding:14px 22px 20px;display:flex;justify-content:flex-end;gap:10px;
+        border-top:1px solid #1e293b;
+      ">
+        <button id="sms-settings-cancel" style="
+          padding:9px 16px;border-radius:8px;
+          background:#1e293b;color:#cbd5e1;border:1px solid #334155;
+          font-size:12px;font-weight:600;cursor:pointer;
+        ">Cancel</button>
+        <button id="sms-settings-save" style="
+          padding:9px 20px;border-radius:8px;border:none;
+          background:#4f46e5;color:#fff;
+          font-size:12px;font-weight:700;cursor:pointer;
+        ">Save Settings</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  modal.querySelector('#sms-settings-close-x').addEventListener('click', () => modal.remove());
+  modal.querySelector('#sms-settings-cancel').addEventListener('click',  () => modal.remove());
+
+  modal.querySelector('#sms-settings-save').addEventListener('click', async () => {
+    const newSettings = {
+      backendUrl:   modal.querySelector('#sms-backend-url').value.trim(),
+      gatewayToken: modal.querySelector('#sms-gateway-token').value.trim(),
+      senderId:     modal.querySelector('#sms-sender-id').value.trim().substring(0, 11) || 'TEACHMATE',
+    };
+    await setIndexedDB(SMS_SETTINGS_KEY, SMS_SETTINGS_KEY, newSettings);
+    showToast('✅ SMS settings saved', 'success');
+    modal.remove();
+  });
+};
+
+// ── SMS LOG VIEWER ────────────────────────────────────────────
+window.openSMSLogModal = async function () {
+  const old = document.getElementById('tm-sms-log-modal');
+  if (old) old.remove();
+
+  const logs = (await getIndexedDB(SMS_LOG_KEY)) || [];
+
+  const modal = document.createElement('div');
+  modal.id    = 'tm-sms-log-modal';
+  modal.style.cssText = `
+    position:fixed;inset:0;z-index:99999;
+    background:rgba(10,15,30,0.85);
+    display:flex;align-items:center;justify-content:center;
+    padding:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    backdrop-filter:blur(6px);
+  `;
+
+  const rows = logs.slice(0, 100).map(l => `
+    <tr style="border-bottom:1px solid #1e293b;">
+      <td style="padding:8px;color:#94a3b8;font-size:11px;white-space:nowrap;">${l.sentAt ? new Date(l.sentAt).toLocaleString() : '-'}</td>
+      <td style="padding:8px;color:#e2e8f0;font-size:11px;">${escapeHTML(l.studentName || l.studentId || '-')}</td>
+      <td style="padding:8px;color:#94a3b8;font-size:11px;">${escapeHTML(l.phone || '-')}</td>
+      <td style="padding:8px;color:#94a3b8;font-size:10px;">${escapeHTML(l.assessment || '-')}</td>
+      <td style="padding:8px;">
+        <span style="
+          padding:2px 8px;border-radius:12px;font-size:10px;font-weight:700;
+          background:${l.status === 'DELIVERED' ? '#064e3b' : l.status === 'SIMULATED' ? '#1c1917' : '#450a0a'};
+          color:${l.status === 'DELIVERED' ? '#34d399' : l.status === 'SIMULATED' ? '#a8a29e' : '#f87171'};
+        ">${l.status || 'UNKNOWN'}</span>
+      </td>
+    </tr>
+  `).join('');
+
+  modal.innerHTML = `
+    <div style="
+      background:#0f172a;border-radius:16px;width:100%;max-width:700px;max-height:85vh;
+      box-shadow:0 30px 80px rgba(0,0,0,0.6);overflow:hidden;
+      border:1px solid #1e293b;display:flex;flex-direction:column;
+    ">
+      <div style="
+        background:linear-gradient(135deg,#1e3a5f 0%,#1e40af 100%);
+        padding:16px 22px;display:flex;justify-content:space-between;align-items:center;
+        flex-shrink:0;
+      ">
+        <div style="color:#bfdbfe;font-size:15px;font-weight:700;">📋 SMS Message Log</div>
+        <button id="sms-log-close" style="background:none;border:none;color:#93c5fd;font-size:22px;cursor:pointer;">&times;</button>
+      </div>
+
+      <div style="overflow-y:auto;flex:1;">
+        ${logs.length === 0
+          ? '<div style="padding:40px;text-align:center;color:#475569;">No messages sent yet.</div>'
+          : `<table style="width:100%;border-collapse:collapse;">
+              <thead style="position:sticky;top:0;background:#0f172a;">
+                <tr>
+                  <th style="padding:10px 8px;text-align:left;font-size:10px;color:#475569;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #1e293b;">Time</th>
+                  <th style="padding:10px 8px;text-align:left;font-size:10px;color:#475569;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #1e293b;">Student</th>
+                  <th style="padding:10px 8px;text-align:left;font-size:10px;color:#475569;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #1e293b;">Phone</th>
+                  <th style="padding:10px 8px;text-align:left;font-size:10px;color:#475569;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #1e293b;">Assessment</th>
+                  <th style="padding:10px 8px;text-align:left;font-size:10px;color:#475569;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #1e293b;">Status</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>`
+        }
+      </div>
+
+      <div style="padding:14px 22px;border-top:1px solid #1e293b;flex-shrink:0;display:flex;justify-content:flex-end;">
+        <button id="sms-log-close-btn" style="
+          padding:9px 20px;border-radius:8px;border:none;
+          background:#1e293b;color:#cbd5e1;
+          font-size:12px;font-weight:600;cursor:pointer;
+        ">Close</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+  modal.querySelector('#sms-log-close').addEventListener('click',     () => modal.remove());
+  modal.querySelector('#sms-log-close-btn').addEventListener('click', () => modal.remove());
+};
+
+// ── WIRE NEW SMS BUTTONS INTO wireUI ─────────────────────────
+// Call this ONCE after wireUI() runs.
+// Looks for buttons with specific IDs in the HTML.
+// Add these 3 buttons to your results HTML alongside other action buttons:
+//
+//   <button id="sendClassSMSBtn">📲 Send Results via SMS</button>
+//   <button id="smsSettingsBtn">⚙️ SMS Settings</button>
+//   <button id="smsLogBtn">📋 SMS Log</button>
+
+(function wireSMSButtons() {
+  function safeOn(id, event, handler) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.removeEventListener(event, handler);
+    el.addEventListener(event, handler);
+  }
+
+  safeOn('sendClassSMSBtn', 'click', async () => {
+    try { await sendClassResultsViaSMS(); } catch (e) { console.error(e); showToast('SMS send failed', 'error'); }
+  });
+
+  safeOn('smsSettingsBtn', 'click', async () => {
+    try { await openSMSSettingsModal(); } catch (e) { console.error(e); showToast('Could not open SMS settings', 'error'); }
+  });
+
+  safeOn('smsLogBtn', 'click', async () => {
+    try { await openSMSLogModal(); } catch (e) { console.error(e); showToast('Could not open SMS log', 'error'); }
+  });
+})();
+
+// ── End SMS Gateway Addon ────────────────────────────────
+
+  
 
 })(); // end Results Module
 
